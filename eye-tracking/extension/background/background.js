@@ -4,16 +4,14 @@
   var namespace = global.EyeGazeCapture = global.EyeGazeCapture || {};
   var browserApi = namespace.browser;
   var messages = namespace.messages.MESSAGE_TYPES;
-  var bridgeEvents = namespace.messages.BRIDGE_EVENT_TYPES;
   var config = namespace.config;
   var storage = namespace.storage;
-  var tracking = namespace.tracking;
   var capturePipeline = namespace.background.capturePipeline;
 
   var state = {
     settings: storage.clone(config.DEFAULT_SETTINGS),
     calibration: storage.clone(config.DEFAULT_CALIBRATION_STATE),
-    bridgeStatus: config.BRIDGE_STATUSES.DISCONNECTED,
+    trackerStatus: config.TRACKER_STATUSES.IDLE,
     trackingActive: false,
     lastError: null,
     activeTabId: null,
@@ -21,13 +19,11 @@
     pageContexts: {}
   };
 
-  var bridge = null;
-
   function getSnapshot() {
     return {
       settings: storage.clone(state.settings),
       calibration: storage.clone(state.calibration),
-      bridgeStatus: state.bridgeStatus,
+      trackerStatus: state.trackerStatus,
       trackingActive: state.trackingActive,
       lastError: state.lastError
     };
@@ -46,13 +42,15 @@
 
   async function sendToTab(tabId, message) {
     if (!tabId) {
-      return;
+      return false;
     }
 
     try {
       await browserApi.tabs.sendMessage(tabId, message);
+      return true;
     } catch (error) {
       console.debug("tabs.sendMessage skipped", tabId, error);
+      return false;
     }
   }
 
@@ -73,134 +71,19 @@
       active: true,
       lastFocusedWindow: true
     });
+
     if (tabs && tabs.length > 0) {
       state.activeTabId = tabs[0].id;
       state.activeWindowId = tabs[0].windowId;
+      state.trackerStatus = config.TRACKER_STATUSES.READY;
     }
-  }
-
-  async function ensureBridgeConnected() {
-    if (!bridge) {
-      return false;
-    }
-
-    bridge.setUrl(state.settings.bridgeUrl);
-
-    try {
-      await bridge.connect(state.settings.bridgeUrl);
-      return true;
-    } catch (error) {
-      state.lastError = error.message;
-      state.bridgeStatus = config.BRIDGE_STATUSES.ERROR;
-      await broadcastSessionState();
-      return false;
-    }
-  }
-
-  async function stopTracking() {
-    if (!bridge) {
-      return;
-    }
-
-    try {
-      await bridge.stopTracking();
-    } catch (error) {
-      console.debug("stopTracking bridge call failed", error);
-    }
-
-    state.trackingActive = false;
-    await broadcastSessionState();
-  }
-
-  async function maybeStartTracking(forceRestart) {
-    if (!state.settings.trackingEnabled) {
-      await stopTracking();
-      return {
-        ok: true,
-        reason: "tracking-disabled"
-      };
-    }
-
-    if (state.calibration.status !== config.CALIBRATION_STATUSES.READY) {
-      state.lastError = "Calibration is required before live tracking.";
-      await broadcastSessionState();
-      return {
-        ok: false,
-        reason: "calibration-required"
-      };
-    }
-
-    if (!await ensureBridgeConnected()) {
-      return {
-        ok: false,
-        reason: "bridge-unavailable"
-      };
-    }
-
-    if (forceRestart) {
-      try {
-        await bridge.stopTracking();
-      } catch (error) {
-        console.debug("bridge stopTracking during restart failed", error);
-      }
-    }
-
-    try {
-      await bridge.startTracking(tracking.buildTrackingPayload(state.settings));
-      state.lastError = null;
-      return {
-        ok: true
-      };
-    } catch (error) {
-      state.lastError = error.message;
-      await broadcastSessionState();
-      return {
-        ok: false,
-        reason: "bridge-start-failed"
-      };
-    }
-  }
-
-  async function reconnectBridge() {
-    if (!bridge) {
-      return getSnapshot();
-    }
-
-    bridge.disconnect();
-    state.bridgeStatus = config.BRIDGE_STATUSES.DISCONNECTED;
-    await broadcastSessionState();
-
-    if (!await ensureBridgeConnected()) {
-      return getSnapshot();
-    }
-
-    try {
-      await bridge.requestStatus();
-    } catch (error) {
-      console.debug("bridge status request failed", error);
-    }
-
-    if (state.settings.trackingEnabled && state.calibration.status === config.CALIBRATION_STATUSES.READY) {
-      await maybeStartTracking(true);
-    }
-
-    return getSnapshot();
   }
 
   async function handleSettingsUpdate(partialSettings) {
-    var previousSettings = storage.clone(state.settings);
     state.settings = await storage.saveSettings(Object.assign({}, state.settings, partialSettings || {}));
-    state.lastError = null;
-
-    if (previousSettings.bridgeUrl !== state.settings.bridgeUrl && bridge) {
-      bridge.disconnect();
-      state.bridgeStatus = config.BRIDGE_STATUSES.DISCONNECTED;
-    }
 
     if (!state.settings.trackingEnabled) {
-      await stopTracking();
-    } else if (tracking.hasTrackingConfigChanged(previousSettings, state.settings) || !state.trackingActive) {
-      await maybeStartTracking(true);
+      state.trackingActive = false;
     }
 
     await broadcastSessionState();
@@ -208,7 +91,15 @@
   }
 
   async function handleCalibrationRequest() {
-    if (!await ensureBridgeConnected()) {
+    var ok;
+
+    if (!state.activeTabId) {
+      await refreshActiveTab();
+    }
+
+    if (!state.activeTabId) {
+      state.lastError = "No active tab available for calibration.";
+      await broadcastSessionState();
       return {
         ok: false,
         snapshot: getSnapshot()
@@ -217,160 +108,97 @@
 
     state.calibration = await storage.saveCalibrationState({
       status: config.CALIBRATION_STATUSES.RUNNING,
-      mode: state.settings.calibrationMode,
+      mode: "eyegestures_lite",
       lastCompletedAt: state.calibration.lastCompletedAt,
-      modelFile: state.calibration.modelFile,
-      sampleCount: state.calibration.sampleCount
+      sampleCount: null
     });
-
-    await stopTracking();
+    state.lastError = null;
     await broadcastSessionState();
 
-    try {
-      await bridge.startCalibration(tracking.buildCalibrationPayload(state.settings));
-      return {
-        ok: true,
-        snapshot: getSnapshot()
-      };
-    } catch (error) {
+    ok = await sendToTab(state.activeTabId, {
+      type: messages.START_CALIBRATION,
+      payload: {
+        cameraIndex: state.settings.cameraIndex,
+        calibrationPoints: state.settings.calibrationPoints
+      }
+    });
+
+    if (!ok) {
       state.calibration = await storage.saveCalibrationState({
         status: config.CALIBRATION_STATUSES.ERROR,
-        mode: state.settings.calibrationMode,
+        mode: "eyegestures_lite",
         lastCompletedAt: state.calibration.lastCompletedAt,
-        modelFile: state.calibration.modelFile,
-        sampleCount: state.calibration.sampleCount
+        sampleCount: null
       });
-      state.lastError = error.message;
+      state.lastError = "Calibration request could not reach the active tab.";
       await broadcastSessionState();
       return {
         ok: false,
         snapshot: getSnapshot()
       };
     }
+
+    return {
+      ok: true,
+      snapshot: getSnapshot()
+    };
   }
 
-  async function handleBridgeStatusChange(status, detail) {
-    state.bridgeStatus = status;
-    if (status === config.BRIDGE_STATUSES.CONNECTED) {
+  async function handleCalibrationEvent(payload) {
+    var status = payload && payload.status;
+    var lastCompletedAt = state.calibration.lastCompletedAt;
+    var nextStatus = config.CALIBRATION_STATUSES.REQUIRED;
+
+    if (status === "running") {
+      nextStatus = config.CALIBRATION_STATUSES.RUNNING;
       state.lastError = null;
-      try {
-        await bridge.requestStatus();
-      } catch (error) {
-        console.debug("bridge requestStatus failed", error);
-      }
-      if (state.settings.trackingEnabled && state.calibration.status === config.CALIBRATION_STATUSES.READY) {
-        await maybeStartTracking(false);
-      }
-    } else if (status === config.BRIDGE_STATUSES.ERROR && detail) {
-      state.lastError = detail;
+    } else if (status === "ready") {
+      nextStatus = config.CALIBRATION_STATUSES.READY;
+      lastCompletedAt = new Date().toISOString();
+      state.lastError = null;
+    } else if (status === "error") {
+      nextStatus = config.CALIBRATION_STATUSES.ERROR;
+      state.lastError = payload && payload.message ? payload.message : "Calibration failed.";
     }
+
+    state.calibration = await storage.saveCalibrationState({
+      status: nextStatus,
+      mode: "eyegestures_lite",
+      lastCompletedAt: lastCompletedAt,
+      sampleCount: payload && payload.sampleCount != null ? payload.sampleCount : state.calibration.sampleCount
+    });
 
     await broadcastSessionState();
+    return {
+      ok: true
+    };
   }
 
-  async function applyBridgeStatusPayload(payload) {
-    if (!payload) {
-      return;
-    }
-
-    if (payload.calibrated) {
-      state.calibration = await storage.saveCalibrationState({
-        status: config.CALIBRATION_STATUSES.READY,
-        mode: payload.calibration_mode || state.calibration.mode || state.settings.calibrationMode,
-        lastCompletedAt: payload.last_calibrated_at || state.calibration.lastCompletedAt,
-        modelFile: payload.model_file || state.calibration.modelFile || state.settings.modelFile,
-        sampleCount: payload.sample_count != null ? payload.sample_count : state.calibration.sampleCount
-      });
+  async function handleTrackingEvent(payload) {
+    state.trackingActive = Boolean(payload && payload.active);
+    if (payload && payload.error) {
+      state.lastError = payload.error;
+      state.trackerStatus = config.TRACKER_STATUSES.ERROR;
     } else {
-      state.calibration = await storage.saveCalibrationState({
-        status: config.CALIBRATION_STATUSES.REQUIRED,
-        mode: payload.calibration_mode || state.calibration.mode || state.settings.calibrationMode,
-        lastCompletedAt: null,
-        modelFile: "",
-        sampleCount: null
-      });
+      if (state.trackingActive) {
+        state.lastError = null;
+      }
+      state.trackerStatus = config.TRACKER_STATUSES.READY;
     }
-
-    if (payload.model_file && !state.settings.modelFile) {
-      state.settings = await storage.saveSettings(Object.assign({}, state.settings, {
-        modelFile: payload.model_file
-      }));
-    } else if (!payload.model_file && state.settings.modelFile) {
-      state.settings = await storage.saveSettings(Object.assign({}, state.settings, {
-        modelFile: ""
-      }));
-    }
-
-    if (typeof payload.tracking === "boolean") {
-      state.trackingActive = payload.tracking;
-    }
+    await broadcastSessionState();
+    return {
+      ok: true
+    };
   }
 
-  async function handleBridgeEvent(message) {
-    if (!message || !message.type) {
-      return;
-    }
-
-    switch (message.type) {
-      case bridgeEvents.BRIDGE_READY:
-      case bridgeEvents.STATUS:
-        await applyBridgeStatusPayload(message.payload);
-        break;
-      case bridgeEvents.CALIBRATION_STARTED:
-        state.calibration = await storage.saveCalibrationState({
-          status: config.CALIBRATION_STATUSES.RUNNING,
-          mode: message.payload && message.payload.mode || state.settings.calibrationMode,
-          lastCompletedAt: state.calibration.lastCompletedAt,
-          modelFile: state.calibration.modelFile,
-          sampleCount: null
-        });
-        break;
-      case bridgeEvents.CALIBRATION_COMPLETED:
-        state.calibration = await storage.saveCalibrationState({
-          status: config.CALIBRATION_STATUSES.READY,
-          mode: message.payload && message.payload.mode || state.settings.calibrationMode,
-          lastCompletedAt: message.payload && message.payload.completed_at || new Date().toISOString(),
-          modelFile: message.payload && message.payload.model_file || state.settings.modelFile,
-          sampleCount: message.payload && message.payload.sample_count != null ? message.payload.sample_count : null
-        });
-        if (message.payload && message.payload.model_file) {
-          state.settings = await storage.saveSettings(Object.assign({}, state.settings, {
-            modelFile: message.payload.model_file
-          }));
-        }
-        if (state.settings.trackingEnabled) {
-          await maybeStartTracking(true);
-        }
-        break;
-      case bridgeEvents.TRACKING_STARTED:
-        state.trackingActive = true;
-        state.lastError = null;
-        break;
-      case bridgeEvents.TRACKING_STOPPED:
-        state.trackingActive = false;
-        break;
-      case bridgeEvents.GAZE_SAMPLE:
-        await sendToTab(state.activeTabId, {
-          type: messages.GAZE_SAMPLE,
-          payload: message.payload
-        });
-        return;
-      case bridgeEvents.ERROR:
-        state.lastError = message.payload && message.payload.message || "EyeTrax bridge error.";
-        if (message.payload && message.payload.scope === "calibration") {
-          state.calibration = await storage.saveCalibrationState(Object.assign({}, state.calibration, {
-            status: config.CALIBRATION_STATUSES.ERROR
-          }));
-        }
-        if (message.payload && message.payload.scope === "tracking") {
-          state.trackingActive = false;
-        }
-        break;
-      default:
-        break;
-    }
-
+  async function handleTrackerError(payload) {
+    state.lastError = payload && payload.message ? payload.message : "Tracker error";
+    state.trackerStatus = config.TRACKER_STATUSES.ERROR;
+    state.trackingActive = false;
     await broadcastSessionState();
+    return {
+      ok: true
+    };
   }
 
   async function handleDwellTrigger(payload, sender) {
@@ -388,7 +216,7 @@
         pageTitle: payload.pageTitle || sender.tab.title || "",
         roi: payload.roi,
         dwellDurationMs: payload.dwellDurationMs,
-        filterMode: payload.filterMode,
+        filterMode: "eyegestures_lite",
         overlayEnabled: payload.overlayEnabled,
         trackingEnabled: payload.trackingEnabled,
         viewport: payload.viewport
@@ -413,6 +241,7 @@
           message: error.message
         }
       });
+
       return {
         ok: false,
         error: error.message
@@ -432,15 +261,20 @@
         return handleSettingsUpdate(message.payload);
       case messages.START_CALIBRATION:
         return handleCalibrationRequest();
-      case messages.RECONNECT_BRIDGE:
-        return reconnectBridge();
       case messages.CONTENT_READY:
         if (sender.tab && sender.tab.id) {
           state.pageContexts[sender.tab.id] = message.payload || {};
           state.activeTabId = sender.tab.id;
           state.activeWindowId = sender.tab.windowId;
+          state.trackerStatus = config.TRACKER_STATUSES.READY;
         }
         return Promise.resolve(getSnapshot());
+      case messages.CALIBRATION_EVENT:
+        return handleCalibrationEvent(message.payload || {});
+      case messages.TRACKING_EVENT:
+        return handleTrackingEvent(message.payload || {});
+      case messages.TRACKER_ERROR:
+        return handleTrackerError(message.payload || {});
       case messages.DWELL_TRIGGER:
         return handleDwellTrigger(message.payload || {}, sender);
       default:
@@ -454,6 +288,7 @@
     browserApi.tabs.onActivated.addListener(function (activeInfo) {
       state.activeTabId = activeInfo.tabId;
       state.activeWindowId = activeInfo.windowId;
+      state.trackerStatus = config.TRACKER_STATUSES.READY;
       broadcastSessionState().catch(function (error) {
         console.debug("broadcastSessionState failed after tab activation", error);
       });
@@ -463,6 +298,8 @@
       delete state.pageContexts[tabId];
       if (state.activeTabId === tabId) {
         state.activeTabId = null;
+        state.trackingActive = false;
+        state.trackerStatus = config.TRACKER_STATUSES.IDLE;
       }
     });
 
@@ -477,41 +314,13 @@
     state.settings = await storage.loadSettings();
     state.calibration = await storage.loadCalibrationState();
     await refreshActiveTab();
-
-    bridge = new tracking.EyeTraxBridge({
-      url: state.settings.bridgeUrl,
-      autoReconnect: state.settings.autoReconnectBridge,
-      onMessage: function (message) {
-        handleBridgeEvent(message).catch(function (error) {
-          console.error("handleBridgeEvent failed", error);
-        });
-      },
-      onStatusChange: function (status, detail) {
-        handleBridgeStatusChange(status, detail).catch(function (error) {
-          console.error("handleBridgeStatusChange failed", error);
-        });
-      }
-    });
-
     registerListeners();
-
-    if (await ensureBridgeConnected()) {
-      try {
-        await bridge.requestStatus();
-      } catch (error) {
-        console.debug("initial bridge.requestStatus failed", error);
-      }
-    }
-
-    if (state.settings.trackingEnabled && state.calibration.status === config.CALIBRATION_STATUSES.READY) {
-      await maybeStartTracking(false);
-    }
-
     await broadcastSessionState();
   }
 
   initialize().catch(function (error) {
     state.lastError = error.message;
+    state.trackerStatus = config.TRACKER_STATUSES.ERROR;
     console.error("Background initialization failed", error);
   });
 })(typeof globalThis !== "undefined" ? globalThis : this);

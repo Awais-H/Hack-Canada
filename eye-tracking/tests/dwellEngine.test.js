@@ -48,22 +48,31 @@ assert.equal(result.triggered, false);
 assert.ok(result.progress > 0.99 && result.progress < 1);
 assert.deepEqual(result.anchorBounds, { x: 200, y: 120, width: 200, height: 200 });
 
-result = engine.update(sampleAt(2000, { point: { x: 330, y: 250 } }));
+result = engine.update(sampleAt(1500, { point: { x: 700, y: 500 } }));
+assert.equal(result.triggered, false);
+assert.equal(result.progress, 0);
+assert.deepEqual(result.anchorBounds, { x: 600, y: 400, width: 200, height: 200 });
+
+result = engine.update(sampleAt(2000, { point: { x: 710, y: 510 } }));
+assert.equal(result.triggered, false);
+assert.equal(result.progress, 0.25);
+
+result = engine.update(sampleAt(3500, { point: { x: 710, y: 490 } }));
 assert.equal(result.triggered, true);
 assert.equal(result.dwellDurationMs, 2000);
 assert.equal(result.roi.id, "gaze_anchor");
-assert.deepEqual(result.roi.bounds, { x: 200, y: 120, width: 200, height: 200 });
+assert.deepEqual(result.roi.bounds, { x: 600, y: 400, width: 200, height: 200 });
 
-result = engine.update(sampleAt(2500, { point: { x: 340, y: 260 } }));
+result = engine.update(sampleAt(3600, { point: { x: 340, y: 260 } }));
 assert.equal(result.state, "COOLDOWN");
 assert.equal(result.triggered, false);
 
-result = engine.update(sampleAt(5001, { point: { x: 650, y: 400 } }));
+result = engine.update(sampleAt(6601, { point: { x: 650, y: 400 } }));
 assert.equal(result.state, "TRACKING");
 assert.equal(result.triggered, false);
 assert.deepEqual(result.anchorBounds, { x: 550, y: 300, width: 200, height: 200 });
 
-result = engine.update(sampleAt(7001, { point: { x: 640, y: 410 } }));
+result = engine.update(sampleAt(8601, { point: { x: 640, y: 410 } }));
 assert.equal(result.triggered, true);
 assert.equal(result.dwellDurationMs, 2000);
 

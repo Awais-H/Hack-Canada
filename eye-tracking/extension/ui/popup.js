@@ -17,18 +17,15 @@
       heroStatus: $("heroStatus"),
       trackingEnabled: $("trackingEnabled"),
       overlayEnabled: $("overlayEnabled"),
-      filterMode: $("filterMode"),
-      calibrationMode: $("calibrationMode"),
       cooldownMs: $("cooldownMs"),
-      emaAlpha: $("emaAlpha"),
-      kdeConfidence: $("kdeConfidence"),
+      dwellThresholdMs: $("dwellThresholdMs"),
+      minimumConfidence: $("minimumConfidence"),
       cameraIndex: $("cameraIndex"),
       debugEnabled: $("debugEnabled"),
       saveFullScreenshot: $("saveFullScreenshot"),
       saveMetadata: $("saveMetadata"),
       recalibrateButton: $("recalibrateButton"),
-      reconnectButton: $("reconnectButton"),
-      companionStatus: $("companionStatus"),
+      trackerStatus: $("trackerStatus"),
       calibrationStatus: $("calibrationStatus"),
       trackingStatus: $("trackingStatus"),
       errorText: $("errorText")
@@ -50,25 +47,20 @@
     isApplyingState = true;
     elements.trackingEnabled.checked = Boolean(settings.trackingEnabled);
     elements.overlayEnabled.checked = Boolean(settings.overlayEnabled);
-    elements.filterMode.value = settings.filterMode || "kalman_ema";
-    elements.calibrationMode.value = settings.calibrationMode || "9p";
     elements.cooldownMs.value = settings.cooldownMs;
-    elements.emaAlpha.value = settings.emaAlpha;
-    elements.kdeConfidence.value = settings.kdeConfidence;
+    elements.dwellThresholdMs.value = settings.dwellThresholdMs;
+    elements.minimumConfidence.value = settings.minimumConfidence;
     elements.cameraIndex.value = settings.cameraIndex;
     elements.debugEnabled.checked = Boolean(settings.debugEnabled);
     elements.saveFullScreenshot.checked = Boolean(settings.saveFullScreenshot);
     elements.saveMetadata.checked = Boolean(settings.saveMetadata);
     isApplyingState = false;
 
-    elements.heroStatus.textContent = capitalize(snapshot.bridgeStatus || "disconnected");
-    elements.companionStatus.textContent = capitalize(snapshot.bridgeStatus || "disconnected");
+    elements.heroStatus.textContent = capitalize(snapshot.trackerStatus || "idle");
+    elements.trackerStatus.textContent = capitalize(snapshot.trackerStatus || "idle");
     elements.calibrationStatus.textContent = capitalize(calibration.status || "required");
     elements.trackingStatus.textContent = snapshot.trackingActive ? "Running" : "Stopped";
     elements.errorText.textContent = snapshot.lastError || "None";
-
-    elements.emaAlpha.disabled = elements.filterMode.value !== "kalman_ema";
-    elements.kdeConfidence.disabled = elements.filterMode.value !== "kde";
     elements.recalibrateButton.disabled = calibration.status === "running";
   }
 
@@ -98,17 +90,10 @@
           patch[controlId] = elements[controlId].checked;
           return patch;
         })();
-      case "filterMode":
-      case "calibrationMode":
-        return (function () {
-          var patch = {};
-          patch[controlId] = elements[controlId].value;
-          return patch;
-        })();
       case "cooldownMs":
       case "cameraIndex":
-      case "emaAlpha":
-      case "kdeConfidence":
+      case "dwellThresholdMs":
+      case "minimumConfidence":
         return (function () {
           var patch = {};
           patch[controlId] = Number(elements[controlId].value);
@@ -137,15 +122,22 @@
   }
 
   function registerEvents() {
-    ["trackingEnabled", "overlayEnabled", "debugEnabled", "saveFullScreenshot", "saveMetadata"].forEach(function (controlId) {
+    [
+      "trackingEnabled",
+      "overlayEnabled",
+      "debugEnabled",
+      "saveFullScreenshot",
+      "saveMetadata"
+    ].forEach(function (controlId) {
       wireControl(controlId, "change");
     });
 
-    ["filterMode", "calibrationMode"].forEach(function (controlId) {
-      wireControl(controlId, "change");
-    });
-
-    ["cooldownMs", "emaAlpha", "kdeConfidence", "cameraIndex"].forEach(function (controlId) {
+    [
+      "cooldownMs",
+      "cameraIndex",
+      "dwellThresholdMs",
+      "minimumConfidence"
+    ].forEach(function (controlId) {
       wireControl(controlId, "change");
     });
 
@@ -157,16 +149,6 @@
         if (response && response.snapshot) {
           applySnapshot(response.snapshot);
         }
-      } catch (error) {
-        elements.errorText.textContent = error.message;
-      }
-    });
-
-    elements.reconnectButton.addEventListener("click", async function () {
-      try {
-        applySnapshot(await sendMessage({
-          type: messages.RECONNECT_BRIDGE
-        }));
       } catch (error) {
         elements.errorText.textContent = error.message;
       }

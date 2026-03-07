@@ -19,12 +19,6 @@
 
   function normalizeSettings(settings) {
     var source = Object.assign({}, config.DEFAULT_SETTINGS, settings || {});
-    var filterMode = config.FILTER_MODES.indexOf(source.filterMode) >= 0
-      ? source.filterMode
-      : config.DEFAULT_SETTINGS.filterMode;
-    var calibrationMode = config.CALIBRATION_MODES.indexOf(source.calibrationMode) >= 0
-      ? source.calibrationMode
-      : config.DEFAULT_SETTINGS.calibrationMode;
 
     return {
       trackingEnabled: Boolean(source.trackingEnabled),
@@ -34,20 +28,9 @@
       saveMetadata: Boolean(source.saveMetadata),
       dwellThresholdMs: Math.round(clampNumber(source.dwellThresholdMs, 250, 10000, config.DEFAULT_SETTINGS.dwellThresholdMs)),
       cooldownMs: Math.round(clampNumber(source.cooldownMs, 250, 30000, config.DEFAULT_SETTINGS.cooldownMs)),
-      filterMode: filterMode,
-      calibrationMode: calibrationMode,
-      emaAlpha: clampNumber(source.emaAlpha, 0, 1, config.DEFAULT_SETTINGS.emaAlpha),
-      kdeConfidence: clampNumber(source.kdeConfidence, 0.05, 0.99, config.DEFAULT_SETTINGS.kdeConfidence),
       minimumConfidence: clampNumber(source.minimumConfidence, 0, 1, config.DEFAULT_SETTINGS.minimumConfidence),
-      denseRows: Math.round(clampNumber(source.denseRows, 2, 12, config.DEFAULT_SETTINGS.denseRows)),
-      denseCols: Math.round(clampNumber(source.denseCols, 2, 12, config.DEFAULT_SETTINGS.denseCols)),
-      denseMargin: clampNumber(source.denseMargin, 0.02, 0.25, config.DEFAULT_SETTINGS.denseMargin),
       cameraIndex: Math.round(clampNumber(source.cameraIndex, 0, 10, config.DEFAULT_SETTINGS.cameraIndex)),
-      modelName: String(source.modelName || config.DEFAULT_SETTINGS.modelName),
-      modelFile: String(source.modelFile || ""),
-      bridgeUrl: String(source.bridgeUrl || config.DEFAULT_SETTINGS.bridgeUrl),
-      autoReconnectBridge: Boolean(source.autoReconnectBridge),
-      kalmanTuneEnabled: Boolean(source.kalmanTuneEnabled)
+      calibrationPoints: Math.round(clampNumber(source.calibrationPoints, 25, 25, config.DEFAULT_SETTINGS.calibrationPoints))
     };
   }
 

@@ -23,7 +23,7 @@
     }
 
     this.host = global.document.createElement("div");
-    this.host.id = "eyetrax-dwell-overlay-host";
+    this.host.id = "eyegestureslite-dwell-overlay-host";
     this.host.setAttribute("aria-hidden", "true");
     this.host.style.position = "fixed";
     this.host.style.inset = "0";

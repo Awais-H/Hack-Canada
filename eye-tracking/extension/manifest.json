@@ -1,11 +1,11 @@
 {
   "manifest_version": 2,
-  "name": "EyeTrax Dwell Capture Prototype",
+  "name": "EyeGesturesLite Dwell Capture",
   "version": "0.1.0",
-  "description": "Firefox MV2 prototype for EyeTrax-driven gaze dwell screenshots.",
+  "description": "Firefox MV2 prototype for EyeGesturesLite-driven gaze dwell screenshots.",
   "applications": {
     "gecko": {
-      "id": "eyetrax-dwell-capture@example.local",
+      "id": "eyegestureslite-dwell-capture@example.local",
       "strict_min_version": "115.0"
     }
   },
@@ -14,9 +14,7 @@
     "tabs",
     "activeTab",
     "downloads",
-    "<all_urls>",
-    "http://127.0.0.1/*",
-    "http://localhost/*"
+    "<all_urls>"
   ],
   "background": {
     "scripts": [
@@ -24,17 +22,18 @@
       "shared/messages.js",
       "shared/config.js",
       "shared/storage.js",
-      "tracking/calibrationSession.js",
-      "tracking/eyetraxBridge.js",
       "background/capturePipeline.js",
       "background/background.js"
     ],
     "persistent": true
   },
   "browser_action": {
-    "default_title": "EyeTrax Capture",
+    "default_title": "EyeGesturesLite Capture",
     "default_popup": "ui/popup.html"
   },
+  "web_accessible_resources": [
+    "tracking/vendor/*"
+  ],
   "content_scripts": [
     {
       "matches": [
@@ -44,13 +43,15 @@
         "shared/browserAdapter.js",
         "shared/messages.js",
         "shared/config.js",
+        "tracking/vendor/ml.min.js",
+        "tracking/vendor/face_mesh.js",
+        "tracking/eyeGesturesLiteTracker.js",
         "content/dwellEngine.js",
-        "content/roiManager.js",
         "content/overlayManager.js",
         "content/contentScript.js"
       ],
       "run_at": "document_idle"
     }
   ],
-  "content_security_policy": "script-src 'self'; object-src 'self'; connect-src 'self' ws://127.0.0.1:8765 ws://localhost:8765;"
+  "content_security_policy": "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self';"
 }

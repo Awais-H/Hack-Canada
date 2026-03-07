@@ -1,227 +1,105 @@
-# EyeTrax Firefox Dwell Capture Prototype
+# EyeGesturesLite Firefox MV2 Dwell Capture
 
-Firefox Manifest V2 prototype for gaze-triggered screenshot capture, anchored to the [EyeTrax](https://github.com/ck-zhang/EyeTrax) Python repository as the tracking source of truth.
+Pure JavaScript Firefox Manifest V2 prototype for gaze-triggered screenshot capture.
 
-## Architecture Summary
+- No local Python process
+- No WebSocket bridge
+- Eye tracking runs directly in the extension content script using EyeGesturesLite-style calibration and prediction flow
 
-### EyeTrax-first integration choice
+## What This Reimplementation Uses
 
-This prototype uses the preferred local companion bridge architecture instead of trying to import the Python package directly into Firefox:
+This implementation is anchored to the EyeGesturesLite approach from:
 
-- `companion/` runs EyeTrax itself for webcam ingest, calibration, feature extraction, blink rejection, smoothing, and gaze prediction.
-- `extension/` handles Firefox MV2 concerns: popup controls, in-page overlay, ROI hit testing, dwell timing, screenshot capture, crop, download, and metadata.
+- https://github.com/NativeSensors/EyeGesturesLite
 
-That preserves the EyeTrax workflow instead of replacing it with a different browser-only tracking design.
+Core pieces mirrored in-browser:
 
-### Gaze pipeline
+- FaceMesh landmark extraction from webcam frames
+- Eye keypoint feature vector construction
+- linear regression calibrator (`ML.MultivariateLinearRegression`)
+- explicit multi-point calibration workflow (25 calibration points)
+- smoothed gaze output for viewport coordinates
 
-1. The local companion creates or reuses an EyeTrax `GazeEstimator`.
-2. Calibration is required before tracking. Default mode is `9p`, with `5p`, `lissajous`, and `dense` also wired through.
-3. During live tracking, the companion:
-   - reads webcam frames
-   - calls `extract_features(frame)`
-   - rejects blink or invalid frames
-   - predicts screen coordinates only for valid samples
-   - smooths the output with `none`, `kalman`, `kalman_ema`, or `kde`
-4. The companion streams absolute screen coordinates to the extension over `ws://127.0.0.1:8765`.
-5. The content script converts screen coordinates into viewport coordinates using Firefox's `window.mozInnerScreenX` and `window.mozInnerScreenY`.
-
-### Calibration workflow
-
-- Default calibration mode: `9p`
-- Other supported modes: `5p`, `lissajous`, `dense`
-- Calibration is started from the popup
-- The current prototype lets the EyeTrax companion own the actual calibration window, so calibration still follows EyeTrax's native flow closely
-- Calibrated models are persisted to `companion/models/eyetrax_latest.pkl` by default
-
-### Filtering choices
-
-- Default: `kalman_ema`
-- Supported in the bridge: `none`, `kalman`, `kalman_ema`, `kde`
-- Popup controls expose filter selection, EMA alpha, cooldown, and camera index
-- Kalman fine-tuning is scaffolded behind `kalman_tune_enabled`, but left off by default because it adds another native tuning pass
-
-### Dwell logic
-
-The content script uses a four-state dwell state machine:
-
-- `IDLE`
-- `TRACKING`
-- `TRIGGERED`
-- `COOLDOWN`
-
-Behavior:
-
-- Enter `TRACKING` when gaze enters a predetermined ROI
-- Accumulate dwell only while the gaze stays inside that ROI and the sample remains valid
-- Trigger capture at `1000 ms`
-- Enter cooldown to prevent repeated captures from a single stare
-
-### Screenshot, crop, and save flow
-
-When dwell reaches the threshold:
-
-1. The content script sends the active ROI, dwell time, viewport metrics, and page metadata to the background script.
-2. The background script captures the visible tab.
-3. The capture pipeline scales ROI CSS pixels to image pixels.
-4. The background script crops the image to the ROI.
-5. Downloads are written with deterministic names:
-   - `output_<timestamp>_<roiId>_crop.png`
-   - `output_<timestamp>_<roiId>_full.png`
-   - `output_<timestamp>_<roiId>_meta.json`
-
-Metadata includes timestamp, URL, ROI id, ROI bounds, dwell duration, filter mode, overlay state, tracking state, viewport size, and capture scale.
-
-### Overlay interaction model
-
-The content script injects a fixed overlay with:
-
-- very high `z-index`
-- `pointer-events: none`
-- no focus handling
-- animated gaze reticle
-- predetermined ROI outlines
-- dwell progress bars
-- capture flash feedback
-
-Overlay visibility is independent from tracking:
-
-- `Tracking Enabled = off` stops tracking, dwell, and capture
-- `Show Visual Overlay = off` keeps tracking and capture active, but hides the overlay only
-
-## File Tree
+## Runtime Architecture
 
 ```text
 extension/
   manifest.json
   background/
-    background.js
-    capturePipeline.js
+    background.js            # session state + message routing + capture trigger
+    capturePipeline.js       # captureVisibleTab + crop + download files
   content/
-    contentScript.js
-    dwellEngine.js
-    overlayManager.js
-    roiManager.js
+    contentScript.js         # tracker lifecycle + dwell updates + trigger send
+    dwellEngine.js           # IDLE/TRACKING/TRIGGERED/COOLDOWN anchor state machine
+    overlayManager.js        # pointer/anchor/debug overlay (click-through)
   tracking/
-    calibrationSession.js
-    eyetraxBridge.js
+    eyeGesturesLiteTracker.js
+    vendor/
+      face_mesh.js
+      ml.min.js
   shared/
     browserAdapter.js
     config.js
     messages.js
     storage.js
   ui/
-    popup.css
     popup.html
+    popup.css
     popup.js
-companion/
-  requirements.txt
-  eyetrax_bridge/
-    __init__.py
-    protocol.py
-    server.py
-    service.py
-README.md
+tests/
+  dwellEngine.test.js
 ```
 
-## Running The Prototype
+## Gaze + Dwell Behavior
 
-### 1. Start the EyeTrax companion bridge
+- Pointer is always rendered when tracking output is valid and overlay is enabled.
+- Debug mode shows:
+  - 10x10 pointer box
+  - 200x200 anchor box
+  - dwell progress bar and tracker status text
+- Anchor logic:
+  - anchor box is centered on current gaze when tracking starts or when gaze exits current anchor
+  - if gaze remains inside that 200x200 box for the dwell threshold (default `2000 ms`), a capture triggers
+  - cooldown prevents immediate retriggers
 
-From the repository root:
+## Capture Outputs
 
-```powershell
-cd companion
-python -m pip install -r requirements.txt
-python -m eyetrax_bridge.server
-```
+On trigger:
 
-Default bridge URL: `ws://127.0.0.1:8765`
+1. `tabs.captureVisibleTab` captures the active viewport
+2. image is cropped to the anchor bounds
+3. downloads are saved under `EyeGesturesLiteCaptures/` with deterministic names:
+   - `output_<timestamp>_gaze_anchor_crop.png`
+   - `output_<timestamp>_gaze_anchor_full.png` (optional)
+   - `output_<timestamp>_gaze_anchor_meta.json` (optional)
 
-If the bridge starts without EyeTrax installed, it now fails lazily with an explicit dependency error instead of crashing during module import.
+## Setup + Run
 
-### 2. Load the Firefox extension
+See [setup.md](./setup.md) for Windows/macOS copy-paste blocks and Firefox loading steps.
 
-1. Open `about:debugging#/runtime/this-firefox`
-2. Choose `Load Temporary Add-on`
-3. Select [extension/manifest.json](/d:/Repositories/Hackathons/Hack-Canada/extension/manifest.json)
+## Calibration Flow
 
-### 3. Calibrate
+1. Load extension in Firefox (`about:debugging#/runtime/this-firefox`)
+2. Open a normal webpage (not Firefox internal pages)
+3. Open popup
+4. Click `Run Calibration`
+5. Wait for calibration to complete
+6. Toggle `Tracking Enabled` on
+7. Enable `Show Visual Overlay` and optionally `Debug Overlay`
 
-1. Open the popup
-2. Choose calibration mode if needed
-3. Click `Run Calibration`
-4. Follow the EyeTrax calibration window
-5. After calibration completes, enable tracking
-
-### 4. Use dwell capture
-
-1. Look at one of the predetermined ROI boxes for 1 second
-2. The visible tab is captured
-3. The capture is cropped to that ROI
-4. Files are downloaded locally into `EyeTraxCaptures/`
-
-## ROI Configuration
-
-Predetermined ROIs live in [extension/shared/config.js](/d:/Repositories/Hackathons/Hack-Canada/extension/shared/config.js). They are viewport-ratio based so the same prototype can run across different page sizes.
-
-Current sample ROIs:
-
-- `left_inspect`
-- `center_focus`
-- `right_action`
-
-For a real deployment, these should become page-aware or user-configurable.
-
-## Popup UI
-
-The popup is a dark-mode control surface with animated toggles and supports:
-
-- tracking on/off
-- overlay on/off
-- recalibration
-- bridge reconnect
-- filter mode selection
-- cooldown setting
-- EMA alpha
-- KDE confidence
-- camera index
-- debug overlay toggle
-- save full screenshot toggle
-- save metadata toggle
-
-## Known Limitations
-
-- EyeTrax is Python-first, so Firefox uses a local companion bridge rather than in-extension Python execution.
-- Calibration currently runs in the EyeTrax native window flow, not an in-page browser calibration overlay.
-- The overlay is in-page only, not OS-wide.
-- Screenshots are viewport-based using `tabs.captureVisibleTab`.
-- ROI coordinates are predetermined and prototype-level.
-- Firefox restricted pages and privileged internal pages will not behave like normal web pages.
-- This is a Firefox MV2 prototype, not a production-ready packaging path.
-- The dwell trigger threshold is fixed to `1000 ms`.
-
-## Testing
-
-The repository includes focused checks for the non-hardware parts of the prototype:
+## Development Checks
 
 ```powershell
-python -m unittest discover -s tests -p "test_*.py"
+cd D:\Repositories\Hackathons\Hack-Canada\eye-tracking
 node tests\dwellEngine.test.js
-python -m compileall companion
 Get-ChildItem extension -Recurse -Filter *.js | ForEach-Object { node --check $_.FullName }
 ```
 
-Covered cases include:
+## Known Limitations
 
-- bridge protocol validation
-- EyeTrax bridge calibration mode routing and lazy dependency handling
-- dwell timing, cooldown suppression, ROI exit reset, and low-confidence rejection
-
-## TODOs
-
-- Replace the WebSocket bridge with Firefox native messaging if stricter local-process integration is required.
-- Add extension-driven dense-grid calibration visuals while still using EyeTrax feature extraction and model training.
-- Persist page-specific ROI templates instead of static defaults.
-- Add stronger calibration success validation instead of relying on EyeTrax helper completion.
-- Add optional full-screen or window-relative ROI authoring tools.
+- This is a Firefox MV2 prototype, not production packaging.
+- Overlay is in-page only (not OS-wide).
+- Capture is viewport-only.
+- The model is calibrated per session and not persisted to external native storage.
+- FaceMesh runtime assets are vendored under `extension/tracking/vendor/` to avoid runtime CDN fetch failures.
+- Performance/accuracy depend on camera quality, lighting, and head motion.
