@@ -92,3 +92,41 @@ Activate the venv later:
 cd /path/to/Hack-Canada/eye-tracking
 source .venv/bin/activate
 ```
+
+## Firefox Extension Setup
+
+After the companion bridge is running, load the Firefox extension manually.
+
+### What to type into Firefox
+
+In the Firefox address bar, open:
+
+```text
+about:debugging#/runtime/this-firefox
+```
+
+### What to select
+
+1. Click `Load Temporary Add-on`
+2. Browse to the `eye-tracking/extension/` folder
+3. Select this file:
+
+```text
+eye-tracking/extension/manifest.json
+```
+
+On this machine, the full path is:
+
+```text
+D:\Repositories\Hackathons\Hack-Canada\eye-tracking\extension\manifest.json
+```
+
+### After loading the extension
+
+1. Open a normal webpage, not a Firefox internal page
+2. Click the extension icon to open the popup
+3. Click `Reconnect Bridge`
+4. Click `Run Calibration`
+5. Finish the EyeTrax calibration flow
+6. Turn on `Tracking Enabled`
+7. If you want to see the gaze pointer and anchor box, turn on `Debug Overlay`
