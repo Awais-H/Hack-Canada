@@ -6,6 +6,8 @@
  * or have background script fetch and send via messaging.
  */
 
+type Theme = "dark" | "light";
+
 interface Product {
   id: string;
   name: string;
@@ -19,20 +21,29 @@ interface Product {
 const MOCK_RECOMMENDED: Product[] = [
   {
     id: "rec-1",
-    name: "Nike Pegasus",
-    shortDescription: "running shoes",
-    imageUrl: "https://placehold.co/120x120/1a1a1a/eee?text=Shoe",
+    name: "Pegasus Runner",
+    shortDescription: "Lightweight road-running shoe",
+    imageUrl: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=280&h=280&fit=crop",
     price: "$120",
     url: "https://www.nike.com/example",
     kind: "recommended",
   },
   {
     id: "rec-2",
-    name: "Wireless Earbuds",
-    shortDescription: "wireless earbuds",
-    imageUrl: "https://placehold.co/120x120/1a1a1a/eee?text=Earbuds",
-    price: "$49",
-    url: "https://example.com/earbuds",
+    name: "Studio Headphones",
+    shortDescription: "Noise-cancelling over-ear",
+    imageUrl: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=280&h=280&fit=crop",
+    price: "$349",
+    url: "https://example.com/headphones",
+    kind: "recommended",
+  },
+  {
+    id: "rec-3",
+    name: "Everyday Tote",
+    shortDescription: "Soft leather carry-all",
+    imageUrl: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?w=280&h=280&fit=crop",
+    price: "$245",
+    url: "https://example.com/tote",
     kind: "recommended",
   },
 ];
@@ -40,26 +51,60 @@ const MOCK_RECOMMENDED: Product[] = [
 const MOCK_ALL: Product[] = [
   {
     id: "all-1",
-    name: "T-shirt",
-    shortDescription: "cotton t-shirt",
-    imageUrl: "https://placehold.co/120x120/1a1a1a/eee?text=T-shirt",
+    name: "Classic Tee",
+    shortDescription: "Organic cotton, relaxed fit",
+    imageUrl: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=280&h=280&fit=crop",
     price: "$25",
     url: "https://example.com/tshirt",
     kind: "all",
   },
   {
     id: "all-2",
-    name: "Backpack",
-    shortDescription: "daypack backpack",
-    imageUrl: "https://placehold.co/120x120/1a1a1a/eee?text=Bag",
-    price: "$65",
+    name: "Daypack",
+    shortDescription: "Minimal everyday backpack",
+    imageUrl: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=280&h=280&fit=crop",
+    price: "$89",
     url: "https://example.com/backpack",
+    kind: "all",
+  },
+  {
+    id: "all-3",
+    name: "Smart Water Bottle",
+    shortDescription: "Tracks intake, glows on schedule",
+    imageUrl: "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=280&h=280&fit=crop",
+    price: "$59",
+    url: "https://example.com/bottle",
     kind: "all",
   },
 ];
 
 const PANEL_ID = "itrack-panel";
 const REOPEN_ID = "itrack-reopen-pill";
+const THEME_STORAGE_KEY = "itrack-theme";
+
+function getInitialTheme(): Theme {
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY) as Theme | null;
+    if (stored === "dark" || stored === "light") {
+      return stored;
+    }
+  } catch {
+    // ignore
+  }
+  if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) {
+    return "light";
+  }
+  return "dark";
+}
+
+function applyTheme(panel: HTMLElement, theme: Theme): void {
+  panel.setAttribute("data-theme", theme);
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch {
+    // ignore
+  }
+}
 
 function isInstagram(): boolean {
   return window.location.hostname.includes("instagram.com");
@@ -72,6 +117,8 @@ function getOrCreatePanel(): HTMLElement | null {
   panel = document.createElement("div");
   panel.id = PANEL_ID;
   panel.className = "itrack-panel";
+  const initialTheme = getInitialTheme();
+  applyTheme(panel, initialTheme);
   document.body.appendChild(panel);
   return panel;
 }
@@ -80,9 +127,48 @@ function createHeader(panel: HTMLElement): void {
   const header = document.createElement("div");
   header.className = "itrack-header";
   header.innerHTML = `
-    <span class="itrack-title">iTrack</span>
-    <button type="button" class="itrack-close" aria-label="Close panel">×</button>
+    <div class="itrack-header-left">
+      <span class="itrack-title">iTrack</span>
+    </div>
+    <div class="itrack-header-right">
+      <div class="itrack-theme-switch" role="switch" aria-label="Dark or light mode" aria-checked="true">
+        <span class="itrack-theme-switch-track">
+          <span class="itrack-theme-switch-thumb"></span>
+          <button type="button" class="itrack-theme-option itrack-theme-dark" aria-label="Dark mode" title="Dark mode">
+            <svg class="itrack-icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </button>
+          <button type="button" class="itrack-theme-option itrack-theme-light" aria-label="Light mode" title="Light mode">
+            <svg class="itrack-icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+          </button>
+        </span>
+      </div>
+      <button type="button" class="itrack-close" aria-label="Close panel">
+            <svg class="itrack-icon-close" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+    </div>
   `;
+  const themeSwitch = header.querySelector(".itrack-theme-switch");
+  const themeDark = header.querySelector(".itrack-theme-dark");
+  const themeLight = header.querySelector(".itrack-theme-light");
+  if (themeSwitch && themeDark && themeLight) {
+    const updateSwitchState = (theme: Theme) => {
+      themeSwitch.setAttribute("data-theme", theme);
+      themeSwitch.setAttribute("aria-checked", theme === "dark" ? "true" : "false");
+      themeDark.setAttribute("aria-pressed", theme === "dark" ? "true" : "false");
+      themeLight.setAttribute("aria-pressed", theme === "light" ? "true" : "false");
+    };
+    const currentTheme = (panel.getAttribute("data-theme") as Theme | null) ?? getInitialTheme();
+    updateSwitchState(currentTheme);
+
+    themeDark.addEventListener("click", () => {
+      applyTheme(panel, "dark");
+      updateSwitchState("dark");
+    });
+    themeLight.addEventListener("click", () => {
+      applyTheme(panel, "light");
+      updateSwitchState("light");
+    });
+  }
   const closeBtn = header.querySelector(".itrack-close") as HTMLButtonElement;
   closeBtn.addEventListener("click", () => {
     panel.classList.add("itrack-panel-hidden");

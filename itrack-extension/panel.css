@@ -4,17 +4,29 @@
   position: fixed;
   top: 0;
   right: 0;
-  width: 320px;
-  max-width: 90vw;
+  width: 340px;
+  max-width: 92vw;
   height: 100vh;
-  background: #1a1a1a;
-  color: #e0e0e0;
-  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.4);
+  background: #18181b;
+  color: #f5f5f7;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    -8px 0 24px rgba(0, 0, 0, 0.35);
   z-index: 2147483647;
   display: flex;
   flex-direction: column;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
   font-size: 14px;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.itrack-panel[data-theme="light"] {
+  background: #e5e7eb;
+  color: #020617;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.07),
+    -18px 0 40px rgba(15, 23, 42, 0.35);
 }
 
 .itrack-panel.itrack-panel-hidden {
@@ -22,39 +34,206 @@
 }
 
 .itrack-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  background: #252525;
-  border-bottom: 1px solid #333;
+  padding: 14px 18px 10px;
+  background: #0f0f14;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   flex-shrink: 0;
 }
 
+.itrack-panel[data-theme="light"] .itrack-header {
+  background: #f3f4f6;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
 .itrack-title {
-  font-weight: 600;
-  font-size: 16px;
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: 0.04em;
+}
+
+.itrack-header-left,
+.itrack-header-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.itrack-header-right {
+  min-height: 32px;
 }
 
 .itrack-close {
-  background: transparent;
-  border: none;
-  color: #e0e0e0;
-  font-size: 24px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: #f5f5f7;
+  font-size: 18px;
   line-height: 1;
   cursor: pointer;
-  padding: 0 4px;
-  border-radius: 4px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 150ms ease-out,
+    border-color 150ms ease-out,
+    transform 120ms ease-out;
+}
+
+.itrack-close svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.itrack-close:focus-visible {
+  outline: 2px solid rgba(110, 168, 255, 0.8);
+  outline-offset: 2px;
+}
+
+.itrack-panel[data-theme="light"] .itrack-close {
+  background: rgba(15, 23, 42, 0.02);
+  border-color: rgba(15, 23, 42, 0.06);
+  color: #020617;
+}
+
+.itrack-panel[data-theme="light"] .itrack-close:focus-visible,
+.itrack-panel[data-theme="light"] .itrack-theme-option:focus-visible {
+  outline-color: rgba(37, 99, 235, 0.8);
 }
 
 .itrack-close:hover {
-  background: #404040;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+  transform: translateY(-0.5px);
+}
+
+.itrack-close:active {
+  transform: translateY(0.5px) scale(0.97);
+}
+
+/* Theme switch: moon (dark) | sun (light) */
+.itrack-theme-switch {
+  display: inline-flex;
+  align-items: center;
+}
+
+.itrack-theme-switch-track {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 2px;
+  gap: 0;
+}
+
+.itrack-panel[data-theme="light"] .itrack-theme-switch-track {
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+.itrack-theme-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: transform 220ms cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+.itrack-theme-switch[data-theme="light"] .itrack-theme-switch-thumb {
+  transform: translateX(28px);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.itrack-panel[data-theme="light"] .itrack-theme-switch[data-theme="light"] .itrack-theme-switch-thumb {
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.15);
+}
+
+.itrack-theme-option {
+  position: relative;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 180ms ease-out, background 180ms ease-out;
+}
+
+.itrack-theme-option:hover {
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.itrack-theme-option[aria-pressed="true"] {
+  color: rgba(255, 255, 255, 0.98);
+}
+
+.itrack-panel[data-theme="light"] .itrack-theme-option {
+  color: rgba(15, 23, 42, 0.5);
+}
+
+.itrack-panel[data-theme="light"] .itrack-theme-option:hover {
+  color: rgba(15, 23, 42, 0.85);
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.itrack-panel[data-theme="light"] .itrack-theme-option[aria-pressed="true"] {
+  color: #020617;
+}
+
+.itrack-theme-option svg {
+  display: block;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+
+.itrack-theme-option:focus-visible {
+  outline: 2px solid rgba(110, 168, 255, 0.8);
+  outline-offset: 2px;
 }
 
 .itrack-content {
+  position: relative;
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
+  padding: 12px 14px 16px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 120, 128, 0.7) transparent;
+}
+
+.itrack-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.itrack-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.itrack-content::-webkit-scrollbar-thumb {
+  background: rgba(120, 120, 128, 0.7);
+  border-radius: 999px;
 }
 
 .itrack-section {
@@ -62,12 +241,12 @@
 }
 
 .itrack-section-title {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #999;
-  margin: 0 0 10px 0;
+  letter-spacing: 0.14em;
+  color: #a1a1aa;
+  margin: 4px 0 10px 0;
 }
 
 .itrack-tiles {
@@ -77,19 +256,53 @@
 }
 
 .itrack-tile {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px;
-  background: #252525;
-  border-radius: 8px;
+  padding: 10px 11px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
   cursor: pointer;
-  border: 1px solid transparent;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition:
+    transform 140ms ease-out,
+    box-shadow 140ms ease-out,
+    border-color 140ms ease-out,
+    background 160ms ease-out;
+}
+
+.itrack-panel[data-theme="light"] .itrack-tile {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(148, 163, 184, 0.35);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+.itrack-tile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  background: rgba(90, 142, 239, 0.15);
+  transition: opacity 160ms ease-out;
+  pointer-events: none;
 }
 
 .itrack-tile:hover {
-  background: #2d2d2d;
-  border-color: #404040;
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.itrack-panel[data-theme="light"] .itrack-tile:hover {
+  border-color: rgba(30, 64, 175, 0.5);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+}
+
+.itrack-tile:hover::after {
+  opacity: 1;
 }
 
 .itrack-tile-media {
@@ -98,38 +311,67 @@
 
 .itrack-tile-media img {
   display: block;
-  border-radius: 6px;
+  border-radius: 10px;
   object-fit: cover;
 }
 
 .itrack-tile-body {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 6px;
+  gap: 6px 10px;
 }
 
 .itrack-tile-name {
-  font-weight: 500;
-  display: block;
-  width: 100%;
+  font-weight: 600;
+  grid-column: 1 / -1;
 }
 
 .itrack-tile-price {
-  color: #aaa;
+  color: #d4d4d8;
   font-size: 12px;
+  font-weight: 600;
+}
+
+.itrack-panel[data-theme="light"] .itrack-tile-price {
+  color: #4b5563;
 }
 
 .itrack-tile-link {
-  color: #6b9fff;
+  color: #6ea8ff;
   text-decoration: none;
   font-size: 12px;
+  justify-self: end;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(110, 168, 255, 0.08);
+  border: 1px solid rgba(110, 168, 255, 0.18);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition:
+    background 150ms ease-out,
+    border-color 150ms ease-out,
+    transform 120ms ease-out;
 }
 
 .itrack-tile-link:hover {
-  text-decoration: underline;
+  text-decoration: none;
+  background: rgba(110, 168, 255, 0.16);
+  border-color: rgba(110, 168, 255, 0.3);
+  transform: translateY(-0.5px);
+}
+
+.itrack-panel[data-theme="light"] .itrack-tile-link {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.3);
+  color: #1d4ed8;
+}
+
+.itrack-panel[data-theme="light"] .itrack-tile-link:hover {
+  background: rgba(37, 99, 235, 0.16);
+  border-color: rgba(37, 99, 235, 0.45);
 }
 
 /* Reopen pill */
@@ -137,20 +379,37 @@
   position: fixed;
   bottom: 24px;
   right: 24px;
-  padding: 10px 16px;
-  background: #6b9fff;
+  padding: 10px 18px;
+  background: #4276ea;
   color: #fff;
   border: none;
-  border-radius: 24px;
-  font-weight: 600;
+  border-radius: 999px;
+  font-weight: 700;
   font-size: 14px;
   cursor: pointer;
   z-index: 2147483646;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow:
+    0 8px 20px rgba(15, 23, 42, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.15);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  transition:
+    transform 150ms ease-out,
+    box-shadow 150ms ease-out,
+    filter 150ms ease-out;
 }
 
 .itrack-reopen-pill:hover {
-  background: #5a8eef;
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.4);
+}
+
+.itrack-panel[data-theme="light"] ~ .itrack-reopen-pill {
+  background: #2563eb;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
 }
 
 .itrack-reopen-pill.itrack-reopen-hidden {
@@ -173,6 +432,10 @@
 
 .itrack-expanded-wrap.itrack-expanded-hidden {
   display: none;
+}
+
+.itrack-panel[data-theme="light"] .itrack-expanded-wrap {
+  background: #e5e7eb;
 }
 
 .itrack-expanded {
@@ -211,7 +474,7 @@
 
 .itrack-expanded-name {
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 700;
   margin: 0 0 8px 0;
 }
 
@@ -223,7 +486,7 @@
 
 .itrack-expanded-price {
   margin: 0 0 12px 0;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .itrack-expanded-link {
@@ -233,9 +496,35 @@
   color: #fff;
   text-decoration: none;
   border-radius: 6px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .itrack-expanded-link:hover {
   background: #5a8eef;
+}
+
+/* Expanded view – light theme */
+.itrack-panel[data-theme="light"] .itrack-expanded-back {
+  color: #2563eb;
+}
+
+.itrack-panel[data-theme="light"] .itrack-expanded-name {
+  color: #020617;
+}
+
+.itrack-panel[data-theme="light"] .itrack-expanded-desc {
+  color: #4b5563;
+}
+
+.itrack-panel[data-theme="light"] .itrack-expanded-price {
+  color: #020617;
+}
+
+.itrack-panel[data-theme="light"] .itrack-expanded-link {
+  background: #2563eb;
+  color: #fff;
+}
+
+.itrack-panel[data-theme="light"] .itrack-expanded-link:hover {
+  background: #1d4ed8;
 }
