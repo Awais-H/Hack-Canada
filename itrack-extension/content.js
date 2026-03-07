@@ -61,26 +61,37 @@ function getOrCreatePanel() {
     document.body.appendChild(panel);
     return panel;
 }
-function createHeader(panel) {
-    const header = document.createElement("div");
-    header.className = "itrack-header";
-    header.innerHTML = `
-    <span class="itrack-title">iTrack</span>
-    <button type="button" class="itrack-close" aria-label="Close panel">×</button>
-  `;
-    const closeBtn = header.querySelector(".itrack-close");
+function createCloseButton(panel) {
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "itrack-close itrack-close-float";
+    closeBtn.setAttribute("aria-label", "Close panel");
+    closeBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>`;
     closeBtn.addEventListener("click", () => {
         panel.classList.add("itrack-panel-hidden");
         const pill = document.getElementById(REOPEN_ID);
         if (pill)
             pill.classList.remove("itrack-reopen-hidden");
     });
-    panel.appendChild(header);
+    panel.appendChild(closeBtn);
 }
-function createSection(parent, title, products, containerId) {
+const RECOMMENDED_SECTION_ID = "itrack-recommended-section";
+
+function createSection(parent, title, products, containerId, sectionClass, onCloseRecommendations) {
     const section = document.createElement("div");
-    section.className = "itrack-section";
-    section.innerHTML = `<h2 class="itrack-section-title">${escapeHtml(title)}</h2><div id="${containerId}" class="itrack-tiles"></div>`;
+    section.className = sectionClass ? `itrack-section ${sectionClass}` : "itrack-section";
+    const isRecommended = sectionClass === "itrack-section-recommended";
+    if (isRecommended) {
+        section.id = RECOMMENDED_SECTION_ID;
+        section.innerHTML = `<div class="itrack-section-header"><h2 class="itrack-section-title">${escapeHtml(title)}</h2><button type="button" class="itrack-section-close" aria-label="Close recommendations" title="Close recommendations">×</button></div><div id="${containerId}" class="itrack-tiles"></div>`;
+        const closeBtn = section.querySelector(".itrack-section-close");
+        if (closeBtn) closeBtn.addEventListener("click", () => {
+            section.classList.add("itrack-section--closed");
+            if (onCloseRecommendations) onCloseRecommendations();
+        });
+    } else {
+        section.innerHTML = `<h2 class="itrack-section-title">${escapeHtml(title)}</h2><div id="${containerId}" class="itrack-tiles"></div>`;
+    }
     parent.appendChild(section);
     return section.querySelector(`#${containerId}`);
 }
@@ -100,16 +111,11 @@ function renderTile(container, product, onSelect) {
     </div>
     <div class="itrack-tile-body">
       <span class="itrack-tile-name">${escapeHtml(product.name)}</span>${priceHtml}
-      <a class="itrack-tile-link" href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">View</a>
     </div>
   `;
-    tile.addEventListener("click", (e) => {
-        const link = e.target.closest("a.itrack-tile-link");
-        if (link)
-            return;
-        e.preventDefault();
-        onSelect(product);
-    });
+  tile.addEventListener("click", () => {
+    onSelect(product);
+  });
     container.appendChild(tile);
 }
 function createExpandedView(panel) {
@@ -168,19 +174,34 @@ function createPanel() {
         return;
     panel.innerHTML = "";
     panel.classList.remove("itrack-panel-hidden");
-    createHeader(panel);
     const content = document.createElement("div");
     content.className = "itrack-content";
     panel.appendChild(content);
+
+    const openRecBar = document.createElement("div");
+    openRecBar.className = "itrack-open-recommendations itrack-open-hidden";
+    openRecBar.innerHTML = `<button type="button" class="itrack-open-recommendations-btn" aria-label="Open recommendations">Open recommendations</button>`;
+    const openRecBtn = openRecBar.querySelector(".itrack-open-recommendations-btn");
+    content.appendChild(openRecBar);
+
     const expandedContent = createExpandedView(panel);
     const expandedWrap = panel.querySelector(".itrack-expanded-wrap");
     const showExpandedView = (product) => {
         showExpanded(expandedContent, product);
     };
-    const recContainer = createSection(content, "Recommended products", MOCK_RECOMMENDED, "itrack-recommended-tiles");
+
+    const recContainer = createSection(content, "Recommended products", MOCK_RECOMMENDED, "itrack-recommended-tiles", "itrack-section-recommended", () => openRecBar.classList.remove("itrack-open-hidden"));
+    if (openRecBtn) {
+        openRecBtn.addEventListener("click", () => {
+            const recSection = document.getElementById(RECOMMENDED_SECTION_ID);
+            if (recSection) recSection.classList.remove("itrack-section--closed");
+            openRecBar.classList.add("itrack-open-hidden");
+        });
+    }
     const allContainer = createSection(content, "All products", MOCK_ALL, "itrack-all-tiles");
     MOCK_RECOMMENDED.forEach((p) => renderTile(recContainer, p, showExpandedView));
     MOCK_ALL.forEach((p) => renderTile(allContainer, p, showExpandedView));
+    createCloseButton(panel);
     createReopenPill();
 }
 function init() {
