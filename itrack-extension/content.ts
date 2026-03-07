@@ -6,8 +6,6 @@
  * or have background script fetch and send via messaging.
  */
 
-type Theme = "dark" | "light";
-
 interface Product {
   id: string;
   name: string;
@@ -80,31 +78,6 @@ const MOCK_ALL: Product[] = [
 
 const PANEL_ID = "itrack-panel";
 const REOPEN_ID = "itrack-reopen-pill";
-const THEME_STORAGE_KEY = "itrack-theme";
-
-function getInitialTheme(): Theme {
-  try {
-    const stored = window.localStorage.getItem(THEME_STORAGE_KEY) as Theme | null;
-    if (stored === "dark" || stored === "light") {
-      return stored;
-    }
-  } catch {
-    // ignore
-  }
-  if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) {
-    return "light";
-  }
-  return "dark";
-}
-
-function applyTheme(panel: HTMLElement, theme: Theme): void {
-  panel.setAttribute("data-theme", theme);
-  try {
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-  } catch {
-    // ignore
-  }
-}
 
 function isInstagram(): boolean {
   return window.location.hostname.includes("instagram.com");
@@ -117,8 +90,6 @@ function getOrCreatePanel(): HTMLElement | null {
   panel = document.createElement("div");
   panel.id = PANEL_ID;
   panel.className = "itrack-panel";
-  const initialTheme = getInitialTheme();
-  applyTheme(panel, initialTheme);
   document.body.appendChild(panel);
   return panel;
 }
@@ -131,44 +102,11 @@ function createHeader(panel: HTMLElement): void {
       <span class="itrack-title">iTrack</span>
     </div>
     <div class="itrack-header-right">
-      <div class="itrack-theme-switch" role="switch" aria-label="Dark or light mode" aria-checked="true">
-        <span class="itrack-theme-switch-track">
-          <span class="itrack-theme-switch-thumb"></span>
-          <button type="button" class="itrack-theme-option itrack-theme-dark" aria-label="Dark mode" title="Dark mode">
-            <svg class="itrack-icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-          </button>
-          <button type="button" class="itrack-theme-option itrack-theme-light" aria-label="Light mode" title="Light mode">
-            <svg class="itrack-icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-          </button>
-        </span>
-      </div>
       <button type="button" class="itrack-close" aria-label="Close panel">
             <svg class="itrack-icon-close" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
           </button>
     </div>
   `;
-  const themeSwitch = header.querySelector(".itrack-theme-switch");
-  const themeDark = header.querySelector(".itrack-theme-dark");
-  const themeLight = header.querySelector(".itrack-theme-light");
-  if (themeSwitch && themeDark && themeLight) {
-    const updateSwitchState = (theme: Theme) => {
-      themeSwitch.setAttribute("data-theme", theme);
-      themeSwitch.setAttribute("aria-checked", theme === "dark" ? "true" : "false");
-      themeDark.setAttribute("aria-pressed", theme === "dark" ? "true" : "false");
-      themeLight.setAttribute("aria-pressed", theme === "light" ? "true" : "false");
-    };
-    const currentTheme = (panel.getAttribute("data-theme") as Theme | null) ?? getInitialTheme();
-    updateSwitchState(currentTheme);
-
-    themeDark.addEventListener("click", () => {
-      applyTheme(panel, "dark");
-      updateSwitchState("dark");
-    });
-    themeLight.addEventListener("click", () => {
-      applyTheme(panel, "light");
-      updateSwitchState("light");
-    });
-  }
   const closeBtn = header.querySelector(".itrack-close") as HTMLButtonElement;
   closeBtn.addEventListener("click", () => {
     panel.classList.add("itrack-panel-hidden");
@@ -197,6 +135,16 @@ function escapeHtml(text: string): string {
   return div.innerHTML;
 }
 
+function attachImageFallback(img: HTMLImageElement): void {
+  img.addEventListener(
+    "error",
+    () => {
+      img.src = "https://placehold.co/280x280/111827/F9FAFB?text=Product";
+    },
+    { once: true }
+  );
+}
+
 function renderTile(container: HTMLElement, product: Product, onSelect: (p: Product) => void): void {
   const tile = document.createElement("div");
   tile.className = "itrack-tile";
@@ -208,13 +156,11 @@ function renderTile(container: HTMLElement, product: Product, onSelect: (p: Prod
     </div>
     <div class="itrack-tile-body">
       <span class="itrack-tile-name">${escapeHtml(product.name)}</span>${priceHtml}
-      <a class="itrack-tile-link" href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">View</a>
     </div>
   `;
-  tile.addEventListener("click", (e) => {
-    const link = (e.target as HTMLElement).closest("a.itrack-tile-link");
-    if (link) return;
-    e.preventDefault();
+  const thumbImg = tile.querySelector("img") as HTMLImageElement | null;
+  if (thumbImg) attachImageFallback(thumbImg);
+  tile.addEventListener("click", () => {
     onSelect(product);
   });
   container.appendChild(tile);
@@ -247,8 +193,9 @@ function showExpanded(container: HTMLElement, product: Product): void {
     <h3 class="itrack-expanded-name">${escapeHtml(product.name)}</h3>
     <p class="itrack-expanded-desc">${escapeHtml(product.shortDescription)}</p>
     ${priceHtml}
-    <a class="itrack-expanded-link" href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">Open product</a>
   `;
+  const expandedImg = container.querySelector("img") as HTMLImageElement | null;
+  if (expandedImg) attachImageFallback(expandedImg);
   const wrap = container.closest(".itrack-expanded-wrap");
   if (wrap) wrap.classList.remove("itrack-expanded-hidden");
 }
