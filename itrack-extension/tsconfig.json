@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2019",
+    "module": "ESNext",
+    "lib": ["DOM", "ES2020"],
+    "strict": true,
+    "noEmitOnError": true,
+    "skipLibCheck": true,
+    "moduleResolution": "node",
+    "outDir": ".",
+    "rootDir": ".",
+    "noEmit": false
+  },
+  "include": ["./content.ts"],
+  "exclude": ["node_modules"]
+}
