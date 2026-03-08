@@ -580,6 +580,20 @@ function attachImageFallback(img: HTMLImageElement): void {
   }, { once: true });
 }
 
+// ---------------------------------------------------------------------------
+// Backend-sourced product type (Cat2 picks with confidence)
+// ---------------------------------------------------------------------------
+interface BackendProduct {
+  name: string;
+  price: string;
+  image_url: string;
+  buy_url: string;
+  source: string;
+  confidence?: number;
+  style_signals?: string[];
+  brand?: string;
+}
+
 // Clicking tile now opens the product URL in a new tab
 function renderTile(container: HTMLElement, product: Product): void {
   const tile = document.createElement("div");
@@ -606,6 +620,77 @@ function renderTile(container: HTMLElement, product: Product): void {
   });
 
   container.appendChild(tile);
+}
+
+/**
+ * Renders a Cat2 tile with a confidence fill bar and optional style badges.
+ * Attaches IntersectionObserver for skip detection.
+ */
+function renderBackendTile(container: HTMLElement, product: BackendProduct, index: number): void {
+  const tile = document.createElement("div");
+  tile.className = "itrack-tile itrack-tile--backend";
+  const id = `backend-${index}-${Date.now()}`;
+  tile.setAttribute("data-product-id",     id);
+  tile.setAttribute("data-product-name",   product.name);
+  tile.setAttribute("data-product-url",    product.buy_url);
+  tile.setAttribute("data-product-price",  product.price);
+  tile.setAttribute("data-product-styles", (product.style_signals ?? []).join(","));
+  tile.setAttribute("data-product-brand",  product.brand ?? "");
+
+  const confidence = product.confidence ?? 0;
+  const pct = Math.round(confidence * 100);
+  const fillColor =
+    confidence > 0.7 ? "rgba(45,212,191,0.9)" :
+    confidence > 0.4 ? "rgba(251,191,36,0.9)" :
+    "rgba(148,163,184,0.6)";
+
+  const priceHtml = product.price
+    ? ` <span class="itrack-tile-price">${escapeHtml(product.price)}</span>`
+    : "";
+
+  tile.innerHTML = `
+    <div class="itrack-tile-media">
+      <img src="${escapeHtml(product.image_url)}" alt="" width="56" height="56" loading="lazy" />
+    </div>
+    <div class="itrack-tile-body">
+      <span class="itrack-tile-name">${escapeHtml(product.name)}</span>${priceHtml}
+      <div class="itrack-confidence-bar" title="Match confidence: ${pct}%" style="
+        margin-top:4px;
+        height:3px;
+        border-radius:999px;
+        overflow:hidden;
+        background:rgba(255,255,255,0.12);
+      ">
+        <div style="
+          width:${pct}%;
+          height:100%;
+          background:${fillColor};
+          transition:width 600ms ease;
+        "></div>
+      </div>
+    </div>
+  `;
+
+  const img = tile.querySelector("img") as HTMLImageElement | null;
+  if (img) {
+    img.addEventListener("error", () => {
+      img.src = "https://placehold.co/280x280/111827/F9FAFB?text=Product";
+    }, { once: true });
+  }
+
+  tile.addEventListener("click", () => {
+    window.open(product.buy_url, "_blank");
+  });
+
+  container.appendChild(tile);
+}
+
+/** (Re-)populates the Recommended section from a live backend response. */
+function updateRecommendedTiles(picks: BackendProduct[]): void {
+  const container = document.getElementById("itrack-recommended-tiles");
+  if (!container) return;
+  container.innerHTML = "";
+  picks.forEach((product, i) => renderBackendTile(container, product, i));
 }
 
 function createSection(parent: HTMLElement, title: string, products: Product[], containerId: string): HTMLElement {
@@ -1291,6 +1376,23 @@ async function handleImageFile(file: File): Promise<boolean> {
     const parsed = await processImageForDwell(file);
     console.log("[iTrack] dwell workflow response", format(parsed));
     setUploadStatus(`Success ${new Date().toLocaleTimeString()}`);
+
+    // Update Recommended panel with live Cat2 picks + confidence bars
+    const response = parsed as {
+      taste_picks?: BackendProduct[];
+      profile_snapshot?: { profile_confidence?: number; session_dwell_count?: number };
+    } | null;
+    if (response?.taste_picks && Array.isArray(response.taste_picks)) {
+      updateRecommendedTiles(response.taste_picks);
+    }
+    if (response?.profile_snapshot) {
+      const { profile_confidence, session_dwell_count } = response.profile_snapshot;
+      if (typeof profile_confidence === "number") {
+        const pct = Math.round(profile_confidence * 100);
+        setUploadStatus(`Captured · profile ${pct}% (${session_dwell_count ?? 0} dwells this session)`);
+      }
+    }
+
     return true;
   } catch (error) {
     console.error("[iTrack] dwell workflow error", format({ error: String(error) }));

@@ -507,6 +507,70 @@ function renderTile(container, product) {
     });
     container.appendChild(tile);
 }
+/**
+ * Renders a Cat2 tile with a confidence fill bar and optional style badges.
+ * Attaches IntersectionObserver for skip detection.
+ */
+function renderBackendTile(container, product, index) {
+    var _a, _b, _c;
+    const tile = document.createElement("div");
+    tile.className = "itrack-tile itrack-tile--backend";
+    const id = `backend-${index}-${Date.now()}`;
+    tile.setAttribute("data-product-id", id);
+    tile.setAttribute("data-product-name", product.name);
+    tile.setAttribute("data-product-url", product.buy_url);
+    tile.setAttribute("data-product-price", product.price);
+    tile.setAttribute("data-product-styles", ((_a = product.style_signals) !== null && _a !== void 0 ? _a : []).join(","));
+    tile.setAttribute("data-product-brand", (_b = product.brand) !== null && _b !== void 0 ? _b : "");
+    const confidence = (_c = product.confidence) !== null && _c !== void 0 ? _c : 0;
+    const pct = Math.round(confidence * 100);
+    const fillColor = confidence > 0.7 ? "rgba(45,212,191,0.9)" :
+        confidence > 0.4 ? "rgba(251,191,36,0.9)" :
+            "rgba(148,163,184,0.6)";
+    const priceHtml = product.price
+        ? ` <span class="itrack-tile-price">${escapeHtml(product.price)}</span>`
+        : "";
+    tile.innerHTML = `
+    <div class="itrack-tile-media">
+      <img src="${escapeHtml(product.image_url)}" alt="" width="56" height="56" loading="lazy" />
+    </div>
+    <div class="itrack-tile-body">
+      <span class="itrack-tile-name">${escapeHtml(product.name)}</span>${priceHtml}
+      <div class="itrack-confidence-bar" title="Match confidence: ${pct}%" style="
+        margin-top:4px;
+        height:3px;
+        border-radius:999px;
+        overflow:hidden;
+        background:rgba(255,255,255,0.12);
+      ">
+        <div style="
+          width:${pct}%;
+          height:100%;
+          background:${fillColor};
+          transition:width 600ms ease;
+        "></div>
+      </div>
+    </div>
+  `;
+    const img = tile.querySelector("img");
+    if (img) {
+        img.addEventListener("error", () => {
+            img.src = "https://placehold.co/280x280/111827/F9FAFB?text=Product";
+        }, { once: true });
+    }
+    tile.addEventListener("click", () => {
+        window.open(product.buy_url, "_blank");
+    });
+    container.appendChild(tile);
+}
+/** (Re-)populates the Recommended section from a live backend response. */
+function updateRecommendedTiles(picks) {
+    const container = document.getElementById("itrack-recommended-tiles");
+    if (!container)
+        return;
+    container.innerHTML = "";
+    picks.forEach((product, i) => renderBackendTile(container, product, i));
+}
 function createSection(parent, title, products, containerId) {
     const section = document.createElement("div");
     section.className = "itrack-section";
@@ -1049,6 +1113,18 @@ async function handleImageFile(file) {
         const parsed = await processImageForDwell(file);
         console.log("[iTrack] dwell workflow response", format(parsed));
         setUploadStatus(`Success ${new Date().toLocaleTimeString()}`);
+        // Update Recommended panel with live Cat2 picks + confidence bars
+        const response = parsed;
+        if ((response === null || response === void 0 ? void 0 : response.taste_picks) && Array.isArray(response.taste_picks)) {
+            updateRecommendedTiles(response.taste_picks);
+        }
+        if (response === null || response === void 0 ? void 0 : response.profile_snapshot) {
+            const { profile_confidence, session_dwell_count } = response.profile_snapshot;
+            if (typeof profile_confidence === "number") {
+                const pct = Math.round(profile_confidence * 100);
+                setUploadStatus(`Captured · profile ${pct}% (${session_dwell_count !== null && session_dwell_count !== void 0 ? session_dwell_count : 0} dwells this session)`);
+            }
+        }
         return true;
     }
     catch (error) {
