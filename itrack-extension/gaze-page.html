@@ -6,7 +6,9 @@
   <!-- EyeGesturesLite CSS (calibration dot + cursor styles) -->
   <link rel="stylesheet" href="https://eyegestures.com/eyegestures.css" />
   <style>
-    html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+    html, body { margin: 0; padding: 0; background: none transparent !important; overflow: hidden; }
+    /* Calibration mode gets a white background so the calibration dots are readable */
+    body.mode-calibration { background: white !important; }
   </style>
 </head>
 <body>

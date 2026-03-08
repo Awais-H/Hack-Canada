@@ -23,10 +23,96 @@ const MOCK_ALL = [
 const PANEL_ID = "itrack-panel";
 const REOPEN_ID = "itrack-reopen-pill";
 const GAZE_IFRAME_ID = "itrack-gaze-iframe";
+const GAZE_DOT_ID = "itrack-gaze-dot";
 /** Replace with your real API endpoint. */
 const GAZE_API_ENDPOINT = "http://localhost:3000/api/gaze";
 /** Milliseconds a gaze must stay on a tile before the POST fires. */
 const DWELL_THRESHOLD_MS = 1500;
+let gazeMode = "normal";
+// ---------------------------------------------------------------------------
+// Dev-mode gaze dot (a native element on the host page, always transparent)
+// ---------------------------------------------------------------------------
+/**
+ * Creates a small circular dot fixed over the whole viewport.
+ * It is the visual stand-in for EyeGesturesLite's own cursor in dev mode,
+ * rendered on the host page so it is completely unaffected by the iframe's
+ * white document background.
+ */
+function injectGazeDot() {
+    if (document.getElementById(GAZE_DOT_ID))
+        return;
+    const dot = document.createElement("div");
+    dot.id = GAZE_DOT_ID;
+    dot.style.cssText = [
+        "position:fixed",
+        "top:0", "left:0",
+        "width:18px", "height:18px",
+        "border-radius:50%",
+        "background:rgba(255,50,50,0.75)",
+        "border:2px solid rgba(255,255,255,0.9)",
+        "box-shadow:0 0 6px rgba(0,0,0,0.45)",
+        "pointer-events:none",
+        `z-index:${2147483646}`,
+        "display:none",
+        "will-change:transform",
+    ].join(";");
+    document.body.appendChild(dot);
+}
+function showGazeDot(visible) {
+    const dot = document.getElementById(GAZE_DOT_ID);
+    if (dot)
+        dot.style.display = visible ? "block" : "none";
+}
+/** Translate the dot so its centre sits at (x, y) in viewport coordinates. */
+function moveGazeDot(x, y) {
+    const dot = document.getElementById(GAZE_DOT_ID);
+    if (!dot || dot.style.display === "none")
+        return;
+    // Dot is 18px wide; shift by -9px so the centre lands on the gaze point.
+    dot.style.transform = `translate(${x - 9}px, ${y - 9}px)`;
+}
+/**
+ * calibration – white overlay, pointer-events active so calibration UI is
+ *               interactive; eye tracking cursor + calibration dots visible.
+ * dev          – iframe stays invisible (opacity 0) so its white background
+ *               never shows; a native gaze dot on the host page shows position.
+ * normal       – iframe invisible; tracking runs silently in the background,
+ *               dwell POSTs still fire.
+ */
+function setGazeMode(mode) {
+    var _a;
+    gazeMode = mode;
+    // Update active-button highlight
+    document.querySelectorAll(".itrack-gaze-btn").forEach(btn => {
+        btn.classList.toggle("itrack-gaze-btn--active", btn.dataset.mode === mode);
+    });
+    // Show the native gaze dot only in dev mode.
+    showGazeDot(mode === "dev");
+    const iframe = document.getElementById(GAZE_IFRAME_ID);
+    if (!iframe)
+        return;
+    switch (mode) {
+        case "calibration":
+            // Full-screen overlay needed so calibration dots and the webcam feed
+            // are interactive and visible.
+            iframe.style.opacity = "1";
+            iframe.style.pointerEvents = "auto";
+            break;
+        case "dev":
+            // Hide the iframe — its document always has a white background that
+            // can't be made transparent. The native gaze dot above replaces the
+            // built-in EyeGesturesLite cursor.
+            iframe.style.opacity = "0";
+            iframe.style.pointerEvents = "none";
+            break;
+        case "normal":
+            iframe.style.opacity = "0";
+            iframe.style.pointerEvents = "none";
+            break;
+    }
+    // Tell the iframe so it can show/hide the cursor and set background colour
+    (_a = iframe.contentWindow) === null || _a === void 0 ? void 0 : _a.postMessage({ type: "ITRACK_SET_MODE", mode }, "*");
+}
 const dwell = { tileId: null, timerId: null, startTime: 0 };
 function isInstagram() {
     return window.location.hostname.includes("instagram.com");
@@ -119,6 +205,26 @@ function createReopenPill() {
     });
     document.body.appendChild(pill);
 }
+function createGazeControls(parent) {
+    const bar = document.createElement("div");
+    bar.className = "itrack-gaze-controls";
+    const modes = [
+        { mode: "calibration", label: "Calibrate", title: "Show calibration overlay" },
+        { mode: "dev", label: "Dev", title: "Show gaze cursor (transparent)" },
+        { mode: "normal", label: "Normal", title: "Run tracking silently" },
+    ];
+    modes.forEach(({ mode, label, title }) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "itrack-gaze-btn" + (mode === gazeMode ? " itrack-gaze-btn--active" : "");
+        btn.dataset.mode = mode;
+        btn.textContent = label;
+        btn.title = title;
+        btn.addEventListener("click", () => setGazeMode(mode));
+        bar.appendChild(btn);
+    });
+    parent.appendChild(bar);
+}
 function createPanel() {
     removeInstagramUI();
     const panel = getOrCreatePanel();
@@ -126,6 +232,7 @@ function createPanel() {
     const content = document.createElement("div");
     content.className = "itrack-content";
     panel.appendChild(content);
+    createGazeControls(content);
     createSection(content, "Recommended products", MOCK_RECOMMENDED, "itrack-recommended-tiles");
     createSection(content, "All products", MOCK_ALL, "itrack-all-tiles");
     createReopenPill();
@@ -142,6 +249,10 @@ function injectGazeIframe() {
     iframe.src = globalThis.browser.runtime.getURL("gaze-page.html");
     // Zero-size, fully transparent – EyeGesturesLite renders its own overlay
     // inside the iframe's own document (moz-extension:// origin).
+    // allowTransparency makes the iframe surface genuinely transparent so the
+    // default white iframe background does not bleed through.
+    iframe.setAttribute("allowTransparency", "true");
+    // Start invisible (normal mode) — setGazeMode() can change this
     iframe.style.cssText = [
         "position:fixed",
         "top:0", "left:0",
@@ -152,6 +263,8 @@ function injectGazeIframe() {
         `z-index:${2147483645}`,
         "opacity:1",
     ].join(";");
+    // Once loaded, apply the current mode (in case setGazeMode was called before load)
+    iframe.addEventListener("load", () => setGazeMode(gazeMode), { once: true });
     // Allow the iframe to use the camera
     iframe.allow = "camera";
     document.body.appendChild(iframe);
@@ -215,7 +328,11 @@ function handleGazeMessage(event) {
     const { x, y, calibrated } = data;
     if (typeof x !== "number" || typeof y !== "number")
         return;
-    // Skip frames during calibration – gaze is not yet reliable
+    // Move the native gaze dot in dev mode so the cursor is visible even while
+    // calibration is still in progress (useful for debugging gaze accuracy).
+    if (gazeMode === "dev")
+        moveGazeDot(x, y);
+    // Skip frames during calibration – gaze is not yet reliable for dwell
     if (!calibrated)
         return;
     const tile = getGazedTile(x, y);
@@ -252,6 +369,7 @@ function init() {
     if (document.getElementById(PANEL_ID))
         return;
     createPanel();
+    injectGazeDot();
     injectGazeIframe();
     window.addEventListener("message", handleGazeMessage);
 }
