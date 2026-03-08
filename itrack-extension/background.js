@@ -3,7 +3,31 @@
   if (!runtime?.onMessage) return;
 
   runtime.onMessage.addListener((message) => {
-    if (!message || message.type !== "ITRACK_PROXY_FETCH") {
+    if (!message || typeof message.type !== "string") {
+      return undefined;
+    }
+
+    if (message.type === "ITRACK_CAPTURE_VISIBLE_TAB") {
+      if (!browser?.tabs?.captureVisibleTab) {
+        return Promise.resolve({
+          ok: false,
+          error: "tabs.captureVisibleTab is unavailable",
+        });
+      }
+
+      return browser.tabs
+        .captureVisibleTab(undefined, { format: "png" })
+        .then((dataUrl) => ({
+          ok: true,
+          dataUrl,
+        }))
+        .catch((error) => ({
+          ok: false,
+          error: String(error),
+        }));
+    }
+
+    if (message.type !== "ITRACK_PROXY_FETCH") {
       return undefined;
     }
 

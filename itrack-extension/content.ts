@@ -36,12 +36,19 @@ const PANEL_ID       = "itrack-panel";
 const REOPEN_ID      = "itrack-reopen-pill";
 const GAZE_IFRAME_ID = "itrack-gaze-iframe";
 const GAZE_DOT_ID    = "itrack-gaze-dot";
+const ANCHOR_BOX_ID  = "itrack-anchor-box";
+const ANCHOR_PROGRESS_ID = "itrack-anchor-progress";
+const AUTO_CAPTURE_TOGGLE_ID = "itrack-auto-capture-toggle";
+const AUTO_CAPTURE_STATUS_ID = "itrack-auto-capture-status";
+const DEV_ACTIONS_ROW_ID = "itrack-dev-actions-row";
 
 /** Replace with your real API endpoint. */
 const GAZE_API_ENDPOINT = "http://localhost:3000/api/gaze";
 
 /** Milliseconds a gaze must stay on a tile before the POST fires. */
 const DWELL_THRESHOLD_MS = 1500;
+const AUTO_CAPTURE_WINDOW_MS = 2000;
+const AUTO_CAPTURE_BOX_SIZE_PX = 400;
 
 // ---------------------------------------------------------------------------
 // Gaze mode
@@ -93,6 +100,19 @@ function moveGazeDot(x: number, y: number): void {
   dot.style.transform = `translate(${x - 9}px, ${y - 9}px)`;
 }
 
+function updateProductSectionVisibility(): void {
+  const hideSections = gazeMode === "calibration";
+  document.querySelectorAll<HTMLElement>(`#${PANEL_ID} .itrack-section`).forEach((section) => {
+    section.style.display = hideSections ? "none" : "";
+  });
+}
+
+function updateDevActionsVisibility(): void {
+  const actionsRow = document.getElementById(DEV_ACTIONS_ROW_ID);
+  if (!(actionsRow instanceof HTMLElement)) return;
+  actionsRow.style.display = gazeMode === "dev" ? "flex" : "none";
+}
+
 /**
  * calibration – white overlay, pointer-events active so calibration UI is
  *               interactive; eye tracking cursor + calibration dots visible.
@@ -111,6 +131,9 @@ function setGazeMode(mode: GazeMode): void {
 
   // Show the native gaze dot only in dev mode.
   showGazeDot(mode === "dev");
+  syncAnchorBoxVisibility();
+  updateProductSectionVisibility();
+  updateDevActionsVisibility();
 
   const iframe = document.getElementById(GAZE_IFRAME_ID) as HTMLIFrameElement | null;
   if (!iframe) return;
@@ -149,6 +172,371 @@ interface DwellState {
 }
 
 const dwell: DwellState = { tileId: null, timerId: null, startTime: 0 };
+
+interface AutoCaptureState {
+  enabled: boolean;
+  anchorTimerId: ReturnType<typeof setTimeout> | null;
+  progressAnimationFrameId: number | null;
+  hasAnchor: boolean;
+  anchorX: number;
+  anchorY: number;
+  anchorStartedAt: number;
+  stayedInsideBox: boolean;
+  hasLastGaze: boolean;
+  lastGazeX: number;
+  lastGazeY: number;
+  lastCalibrated: boolean;
+  captureInFlight: boolean;
+}
+
+const autoCapture: AutoCaptureState = {
+  enabled: true,
+  anchorTimerId: null,
+  progressAnimationFrameId: null,
+  hasAnchor: false,
+  anchorX: 0,
+  anchorY: 0,
+  anchorStartedAt: 0,
+  stayedInsideBox: false,
+  hasLastGaze: false,
+  lastGazeX: 0,
+  lastGazeY: 0,
+  lastCalibrated: false,
+  captureInFlight: false,
+};
+
+function injectAnchorBox(): void {
+  if (document.getElementById(ANCHOR_BOX_ID)) return;
+  const box = document.createElement("div");
+  box.id = ANCHOR_BOX_ID;
+  box.innerHTML = `
+    <div style="
+      position:absolute;
+      left:8px;
+      right:8px;
+      bottom:8px;
+      height:8px;
+      border-radius:999px;
+      overflow:hidden;
+      background:rgba(15,23,42,0.45);
+      border:1px solid rgba(148,163,184,0.45);
+    ">
+      <div id="${ANCHOR_PROGRESS_ID}" style="
+        width:0%;
+        height:100%;
+        background:rgba(45,212,191,0.95);
+        transition:width 80ms linear;
+      "></div>
+    </div>
+  `;
+  box.style.cssText = [
+    "position:fixed",
+    "top:0",
+    "left:0",
+    `width:${AUTO_CAPTURE_BOX_SIZE_PX}px`,
+    `height:${AUTO_CAPTURE_BOX_SIZE_PX}px`,
+    "border:2px dashed rgba(45, 212, 191, 0.95)",
+    "box-shadow:0 0 0 1px rgba(15, 23, 42, 0.75), 0 0 24px rgba(45, 212, 191, 0.28)",
+    "border-radius:10px",
+    "pointer-events:none",
+    "display:none",
+    `z-index:${2147483644}`,
+    "will-change:transform",
+  ].join(";");
+  document.body.appendChild(box);
+}
+
+function showAnchorBox(visible: boolean): void {
+  const box = document.getElementById(ANCHOR_BOX_ID);
+  if (box) box.style.display = visible && gazeMode === "dev" ? "block" : "none";
+}
+
+function setAnchorBoxState(active: boolean): void {
+  const box = document.getElementById(ANCHOR_BOX_ID);
+  if (!box) return;
+  box.style.borderColor = active
+    ? "rgba(45, 212, 191, 0.95)"
+    : "rgba(248, 113, 113, 0.95)";
+}
+
+function moveAnchorBox(x: number, y: number): void {
+  const box = document.getElementById(ANCHOR_BOX_ID);
+  if (!box) return;
+  box.style.transform = `translate(${x - AUTO_CAPTURE_BOX_SIZE_PX / 2}px, ${y - AUTO_CAPTURE_BOX_SIZE_PX / 2}px)`;
+}
+
+function setAnchorProgress(progress: number, active: boolean): void {
+  const bar = document.getElementById(ANCHOR_PROGRESS_ID);
+  if (!(bar instanceof HTMLElement)) return;
+  const clamped = Math.max(0, Math.min(progress, 1));
+  bar.style.width = `${Math.round(clamped * 100)}%`;
+  bar.style.background = active
+    ? "rgba(45,212,191,0.95)"
+    : "rgba(248,113,113,0.95)";
+}
+
+function stopAnchorProgressAnimation(resetToZero: boolean): void {
+  if (autoCapture.progressAnimationFrameId !== null) {
+    cancelAnimationFrame(autoCapture.progressAnimationFrameId);
+    autoCapture.progressAnimationFrameId = null;
+  }
+  if (resetToZero) {
+    setAnchorProgress(0, true);
+  }
+}
+
+function startAnchorProgressAnimation(): void {
+  stopAnchorProgressAnimation(false);
+
+  const tick = (): void => {
+    if (!autoCapture.hasAnchor) {
+      autoCapture.progressAnimationFrameId = null;
+      return;
+    }
+
+    const elapsed = Date.now() - autoCapture.anchorStartedAt;
+    const progress = elapsed / AUTO_CAPTURE_WINDOW_MS;
+    setAnchorProgress(progress, autoCapture.stayedInsideBox);
+
+    autoCapture.progressAnimationFrameId = requestAnimationFrame(tick);
+  };
+
+  setAnchorProgress(0, true);
+  autoCapture.progressAnimationFrameId = requestAnimationFrame(tick);
+}
+
+function syncAnchorBoxVisibility(): void {
+  showAnchorBox(autoCapture.enabled && autoCapture.hasAnchor && gazeMode === "dev");
+}
+
+function setAutoCaptureStatus(text: string): void {
+  const statusEl = document.getElementById(AUTO_CAPTURE_STATUS_ID);
+  if (statusEl) statusEl.textContent = text;
+}
+
+function updateAutoCaptureToggleUi(): void {
+  const button = document.getElementById(AUTO_CAPTURE_TOGGLE_ID) as HTMLButtonElement | null;
+  if (!button) return;
+
+  button.textContent = autoCapture.enabled ? "Auto capture: ON" : "Auto capture: OFF";
+  button.style.background = autoCapture.enabled
+    ? "rgba(16,185,129,0.25)"
+    : "rgba(255,255,255,0.1)";
+  button.style.borderColor = autoCapture.enabled
+    ? "rgba(16,185,129,0.7)"
+    : "rgba(255,255,255,0.25)";
+}
+
+function isInsideAnchoredBox(x: number, y: number): boolean {
+  if (!autoCapture.hasAnchor) return false;
+  const half = AUTO_CAPTURE_BOX_SIZE_PX / 2;
+  return (
+    x >= autoCapture.anchorX - half &&
+    x <= autoCapture.anchorX + half &&
+    y >= autoCapture.anchorY - half &&
+    y <= autoCapture.anchorY + half
+  );
+}
+
+async function captureVisibleViewportDataUrl(): Promise<string> {
+  const runtime =
+    (globalThis as { browser?: { runtime?: { sendMessage?: (message: unknown) => Promise<unknown> } } }).browser
+      ?.runtime;
+
+  if (!runtime?.sendMessage) {
+    throw new Error("browser.runtime.sendMessage is not available for tab capture");
+  }
+
+  const response = (await runtime.sendMessage({
+    type: "ITRACK_CAPTURE_VISIBLE_TAB",
+  })) as CaptureVisibleTabResponse | null;
+
+  if (!response?.ok || typeof response.dataUrl !== "string" || !response.dataUrl) {
+    throw new Error(`Tab capture failed: ${response?.error ?? "unknown error"}`);
+  }
+
+  return response.dataUrl;
+}
+
+function dataUrlToImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Failed to decode captured tab image"));
+    image.src = dataUrl;
+  });
+}
+
+async function captureAnchoredRegionToFile(anchorX: number, anchorY: number): Promise<File> {
+  const dataUrl = await captureVisibleViewportDataUrl();
+  const image = await dataUrlToImage(dataUrl);
+
+  const viewportWidth = Math.max(window.innerWidth, 1);
+  const viewportHeight = Math.max(window.innerHeight, 1);
+  const sampleWidthCss = Math.min(AUTO_CAPTURE_BOX_SIZE_PX, viewportWidth);
+  const sampleHeightCss = Math.min(AUTO_CAPTURE_BOX_SIZE_PX, viewportHeight);
+
+  const leftCss = anchorX - AUTO_CAPTURE_BOX_SIZE_PX / 2;
+  const topCss = anchorY - AUTO_CAPTURE_BOX_SIZE_PX / 2;
+  const clampedLeftCss = Math.max(0, Math.min(leftCss, viewportWidth - sampleWidthCss));
+  const clampedTopCss = Math.max(0, Math.min(topCss, viewportHeight - sampleHeightCss));
+
+  const sourceScaleX = image.naturalWidth / viewportWidth;
+  const sourceScaleY = image.naturalHeight / viewportHeight;
+  const sourceX = Math.round(clampedLeftCss * sourceScaleX);
+  const sourceY = Math.round(clampedTopCss * sourceScaleY);
+  const sourceW = Math.max(1, Math.round(sampleWidthCss * sourceScaleX));
+  const sourceH = Math.max(1, Math.round(sampleHeightCss * sourceScaleY));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = AUTO_CAPTURE_BOX_SIZE_PX;
+  canvas.height = AUTO_CAPTURE_BOX_SIZE_PX;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Canvas context unavailable for anchor crop");
+  }
+
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, AUTO_CAPTURE_BOX_SIZE_PX, AUTO_CAPTURE_BOX_SIZE_PX);
+  ctx.drawImage(
+    image,
+    sourceX,
+    sourceY,
+    sourceW,
+    sourceH,
+    0,
+    0,
+    AUTO_CAPTURE_BOX_SIZE_PX,
+    AUTO_CAPTURE_BOX_SIZE_PX,
+  );
+
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((value) => resolve(value), "image/png");
+  });
+
+  if (!blob) {
+    throw new Error("Failed to encode anchor crop to PNG");
+  }
+
+  return new File([blob], `itrack-anchor-${Date.now()}.png`, { type: "image/png" });
+}
+
+async function finishAutoCaptureWindow(): Promise<void> {
+  const shouldCapture = autoCapture.hasAnchor && autoCapture.stayedInsideBox;
+  const anchorX = autoCapture.anchorX;
+  const anchorY = autoCapture.anchorY;
+
+  autoCapture.hasAnchor = false;
+  stopAnchorProgressAnimation(true);
+  syncAnchorBoxVisibility();
+
+  if (shouldCapture) {
+    if (autoCapture.captureInFlight) {
+      setAutoCaptureStatus("Skipped: upload busy");
+    } else {
+      autoCapture.captureInFlight = true;
+      setAutoCaptureStatus("Capturing 400x400...");
+      try {
+        const file = await captureAnchoredRegionToFile(anchorX, anchorY);
+        console.log("[iTrack] auto capture ready", {
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          anchorX,
+          anchorY,
+        });
+        const ok = await handleImageFile(file);
+        setAutoCaptureStatus(ok ? `Captured ${new Date().toLocaleTimeString()}` : "Capture failed");
+      } catch (error) {
+        console.error("[iTrack] auto capture failed", error);
+        setAutoCaptureStatus("Capture error");
+      } finally {
+        autoCapture.captureInFlight = false;
+      }
+    }
+  } else if (autoCapture.enabled) {
+    setAutoCaptureStatus("No capture (left anchor box)");
+  }
+
+  if (autoCapture.enabled) {
+    if (autoCapture.hasLastGaze && autoCapture.lastCalibrated) {
+      startAutoCaptureWindow(autoCapture.lastGazeX, autoCapture.lastGazeY);
+    } else {
+      setAutoCaptureStatus("Waiting for calibrated gaze...");
+    }
+  }
+}
+
+function startAutoCaptureWindow(anchorX: number, anchorY: number): void {
+  if (!autoCapture.enabled) return;
+  if (autoCapture.anchorTimerId !== null) return;
+
+  autoCapture.hasAnchor = true;
+  autoCapture.anchorX = anchorX;
+  autoCapture.anchorY = anchorY;
+  autoCapture.anchorStartedAt = Date.now();
+  autoCapture.stayedInsideBox = true;
+
+  moveAnchorBox(anchorX, anchorY);
+  setAnchorBoxState(true);
+  syncAnchorBoxVisibility();
+  startAnchorProgressAnimation();
+  setAutoCaptureStatus("Anchored. Hold gaze for 2s...");
+
+  autoCapture.anchorTimerId = setTimeout(() => {
+    autoCapture.anchorTimerId = null;
+    void finishAutoCaptureWindow();
+  }, AUTO_CAPTURE_WINDOW_MS);
+}
+
+function observeAutoCaptureGaze(x: number, y: number, calibrated: boolean): void {
+  autoCapture.hasLastGaze = true;
+  autoCapture.lastGazeX = x;
+  autoCapture.lastGazeY = y;
+  autoCapture.lastCalibrated = calibrated;
+
+  if (!autoCapture.enabled) return;
+  if (!calibrated) return;
+
+  if (!autoCapture.hasAnchor) {
+    startAutoCaptureWindow(x, y);
+    return;
+  }
+
+  if (autoCapture.stayedInsideBox && !isInsideAnchoredBox(x, y)) {
+    autoCapture.stayedInsideBox = false;
+    setAnchorBoxState(false);
+    const elapsed = Date.now() - autoCapture.anchorStartedAt;
+    setAnchorProgress(elapsed / AUTO_CAPTURE_WINDOW_MS, false);
+    setAutoCaptureStatus("Left anchor box. Waiting cycle end...");
+  }
+}
+
+function setAutoCaptureEnabled(enabled: boolean): void {
+  if (autoCapture.enabled === enabled) return;
+  autoCapture.enabled = enabled;
+  updateAutoCaptureToggleUi();
+
+  if (!enabled) {
+    if (autoCapture.anchorTimerId !== null) {
+      clearTimeout(autoCapture.anchorTimerId);
+      autoCapture.anchorTimerId = null;
+    }
+    autoCapture.hasAnchor = false;
+    autoCapture.stayedInsideBox = false;
+    stopAnchorProgressAnimation(true);
+    syncAnchorBoxVisibility();
+    setAutoCaptureStatus("Off");
+    return;
+  }
+
+  if (autoCapture.hasLastGaze && autoCapture.lastCalibrated) {
+    startAutoCaptureWindow(autoCapture.lastGazeX, autoCapture.lastGazeY);
+  } else {
+    setAutoCaptureStatus("Waiting for calibrated gaze...");
+  }
+}
 
 function isInstagram(): boolean {
   return window.location.hostname.includes("instagram.com");
@@ -280,7 +668,7 @@ function createImageUploadControl(parent: HTMLElement): void {
     "display:flex",
     "align-items:center",
     "gap:8px",
-    "margin:8px 0 12px",
+    "margin:0",
   ].join(";");
 
   const button = document.createElement("button");
@@ -296,14 +684,10 @@ function createImageUploadControl(parent: HTMLElement): void {
     "font-size:12px",
   ].join(";");
 
-  const helper = document.createElement("span");
-  helper.textContent = "Direct upload -> base64 -> /dwell";
-  helper.style.cssText = "font-size:11px; opacity:0.75;";
-
   const status = document.createElement("span");
   status.id = "itrack-upload-status";
   status.textContent = "Idle";
-  status.style.cssText = "font-size:11px; opacity:0.9;";
+  status.style.cssText = "display:none;";
 
   const input = document.createElement("input");
   input.id = "imageFile";
@@ -314,10 +698,46 @@ function createImageUploadControl(parent: HTMLElement): void {
   button.addEventListener("click", () => input.click());
 
   row.appendChild(button);
-  row.appendChild(helper);
   row.appendChild(status);
   row.appendChild(input);
   parent.appendChild(row);
+}
+
+function createAutoCaptureControl(parent: HTMLElement): void {
+  if (document.getElementById(AUTO_CAPTURE_TOGGLE_ID)) return;
+
+  const row = document.createElement("div");
+  row.style.cssText = [
+    "display:flex",
+    "align-items:center",
+    "gap:8px",
+    "margin:0",
+  ].join(";");
+
+  const button = document.createElement("button");
+  button.id = AUTO_CAPTURE_TOGGLE_ID;
+  button.type = "button";
+  button.style.cssText = [
+    "padding:6px 10px",
+    "border-radius:8px",
+    "border:1px solid rgba(255,255,255,0.25)",
+    "background:rgba(255,255,255,0.1)",
+    "color:#fff",
+    "cursor:pointer",
+    "font-size:12px",
+  ].join(";");
+  button.addEventListener("click", () => setAutoCaptureEnabled(!autoCapture.enabled));
+
+  const status = document.createElement("span");
+  status.id = AUTO_CAPTURE_STATUS_ID;
+  status.textContent = "Off";
+  status.style.cssText = "display:none;";
+
+  row.appendChild(button);
+  row.appendChild(status);
+  parent.appendChild(row);
+
+  updateAutoCaptureToggleUi();
 }
 
 function createPanel(): void {
@@ -329,10 +749,24 @@ function createPanel(): void {
   content.className = "itrack-content";
   panel.appendChild(content);
 
+  const actionsRow = document.createElement("div");
+  actionsRow.id = DEV_ACTIONS_ROW_ID;
+  actionsRow.style.cssText = [
+    "display:flex",
+    "align-items:center",
+    "gap:10px",
+    "margin:8px 0 12px",
+    "flex-wrap:nowrap",
+  ].join(";");
+  content.appendChild(actionsRow);
+
+  createImageUploadControl(actionsRow);
+  createAutoCaptureControl(actionsRow);
+  updateDevActionsVisibility();
   createGazeControls(content);
-  createImageUploadControl(content);
   createSection(content, "Recommended products", MOCK_RECOMMENDED, "itrack-recommended-tiles");
   createSection(content, "All products", MOCK_ALL, "itrack-all-tiles");
+  updateProductSectionVisibility();
 
   createReopenPill();
 }
@@ -439,7 +873,12 @@ function handleGazeMessage(event: MessageEvent): void {
   if (gazeMode === "dev") moveGazeDot(x, y);
 
   // Skip frames during calibration – gaze is not yet reliable for dwell
-  if (!calibrated) return;
+  if (!calibrated) {
+    observeAutoCaptureGaze(x, y, false);
+    return;
+  }
+
+  observeAutoCaptureGaze(x, y, true);
 
   const tile = getGazedTile(x, y);
   const tileId = tile?.dataset.productId ?? null;
@@ -475,6 +914,7 @@ function init(): void {
   if (document.getElementById(PANEL_ID)) return;
   createPanel();
   injectGazeDot();
+  injectAnchorBox();
   injectGazeIframe();
   watchForImageInput();
   window.addEventListener("message", handleGazeMessage);
@@ -516,6 +956,12 @@ type ProxyFetchResponse = {
   status?: number;
   statusText?: string;
   bodyText?: string;
+  error?: string;
+};
+
+type CaptureVisibleTabResponse = {
+  ok?: boolean;
+  dataUrl?: string;
   error?: string;
 };
 
@@ -839,15 +1285,17 @@ async function processImageForDwell(file: File): Promise<unknown> {
   return parsed;
 }
 
-async function handleImageFile(file: File): Promise<void> {
+async function handleImageFile(file: File): Promise<boolean> {
   setUploadStatus("Sending...");
   try {
     const parsed = await processImageForDwell(file);
     console.log("[iTrack] dwell workflow response", format(parsed));
     setUploadStatus(`Success ${new Date().toLocaleTimeString()}`);
+    return true;
   } catch (error) {
     console.error("[iTrack] dwell workflow error", format({ error: String(error) }));
     setUploadStatus("Error");
+    return false;
   }
 }
 
