@@ -162,3 +162,59 @@ window.addEventListener("itrack-products", ((e: CustomEvent<{ recommended: Produ
   recommended.forEach(p => renderTile(recContainer, p));
   all.forEach(p => renderTile(allContainer, p));
 }) as EventListener);
+
+// Image conversion to Base64
+const asBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const base64 = result.includes(",") ? result.split(",")[1] : "";
+      resolve(base64);
+    };
+    reader.onerror = () => reject(reader.error || new Error("File read failed"));
+    reader.readAsDataURL(file);
+  });
+
+// clean output value
+const format = (value) => JSON.stringify(value, null, 2);
+
+
+try {
+  const fileInput = document.getElementById("imageFile"); // Replace with the actual file that is being sent
+  const file = fileInput.files && fileInput.files[0]; // Might need to change since you are uploading a file in a different way
+  if (!file) {
+    throw new Error("Please choose an image file.");
+  }
+
+  const screenshotB64 = await asBase64(file); // get the actual base64 string of the image file
+  if (!screenshotB64) {
+    throw new Error("Image conversion to base64 failed.");
+  }
+
+  const baseUrl = 'http://127.0.0.1:8000'; // Replace later with actual backend URL
+  const body = {
+    user_id: 'frontend-test-user',
+    dwell_duration_ms: 2400,
+    screenshot_b64: screenshotB64,
+  };
+
+  const response = await fetch(`${baseUrl}/dwell`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const text = await response.text();
+  const parsed = text ? JSON.parse(text) : null;
+
+  const clean_response = format(parsed); // RESPONSE!
+
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status} ${response.statusText}`);
+  }
+} catch (error) {
+  console.error(format({error: String(error)})); // error
+}
+
+export {}
