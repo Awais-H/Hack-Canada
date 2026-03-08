@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>iTrack Dwell Tester</title>
+    <style>
+      :root {
+        --bg: #f3f2ec;
+        --card: #fffdf8;
+        --ink: #1b1f24;
+        --muted: #58636f;
+        --line: #d4cab7;
+        --accent: #0c6b58;
+        --accent-2: #e6fff7;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Avenir Next", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 100% 0%, #dce8d5 0%, transparent 40%),
+          radial-gradient(circle at 0% 100%, #ecd7c1 0%, transparent 45%),
+          var(--bg);
+      }
+
+      .wrap {
+        width: min(960px, 92vw);
+        margin: 2rem auto;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        box-shadow: 0 12px 32px rgba(23, 29, 33, 0.08);
+        overflow: hidden;
+      }
+
+      .hero {
+        padding: 1.25rem 1.5rem;
+        border-bottom: 1px solid var(--line);
+        background: linear-gradient(120deg, #f7f8ee, #f9f3eb);
+      }
+
+      h1 {
+        margin: 0;
+        letter-spacing: 0.04em;
+        font-size: 1.3rem;
+      }
+
+      p {
+        margin: 0.6rem 0 0;
+        color: var(--muted);
+      }
+
+      form {
+        padding: 1.1rem 1.5rem 1.4rem;
+        display: grid;
+        gap: 0.9rem;
+      }
+
+      .row {
+        display: grid;
+        gap: 0.9rem;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      label {
+        font-size: 0.9rem;
+        color: var(--muted);
+        display: block;
+        margin-bottom: 0.28rem;
+      }
+
+      input,
+      button {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 0.68rem 0.72rem;
+        font: inherit;
+        background: #ffffff;
+      }
+
+      input:focus,
+      button:focus {
+        outline: 2px solid #86e5c3;
+        outline-offset: 1px;
+      }
+
+      button {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      button:hover {
+        filter: brightness(1.06);
+      }
+
+      pre {
+        margin: 0;
+        padding: 1rem 1.2rem;
+        border-top: 1px solid var(--line);
+        background: var(--accent-2);
+        color: #0f2831;
+        overflow: auto;
+        max-height: 46vh;
+      }
+
+      .small {
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+
+      @media (max-width: 720px) {
+        .row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="hero">
+        <h1>iTrack Dwell Endpoint Tester</h1>
+        <p>
+          Upload an image, then send a synthetic dwell event to <code>/dwell</code>.
+          This is useful for SerpApi mode because Cat1 uses your image for Google Lens.
+        </p>
+      </section>
+
+      <form id="dwellForm">
+        <div class="row">
+          <div>
+            <label for="baseUrl">Backend Base URL</label>
+            <input id="baseUrl" value="http://127.0.0.1:8000" required />
+          </div>
+          <div>
+            <label for="userId">User ID</label>
+            <input id="userId" value="frontend-test-user" required />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="pageUrl">Page URL</label>
+            <input id="pageUrl" value="https://www.instagram.com/reel/example" required />
+          </div>
+          <div>
+            <label for="pageTitle">Page Title</label>
+            <input id="pageTitle" value="Test Reel" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="duration">Dwell Duration (ms)</label>
+            <input id="duration" type="number" min="0" value="2400" required />
+          </div>
+          <div>
+            <label for="imageFile">Screenshot Image</label>
+            <input id="imageFile" type="file" accept="image/*" required />
+          </div>
+        </div>
+
+        <button type="submit">POST /dwell</button>
+        <div class="small" id="meta">No request yet.</div>
+      </form>
+
+      <pre id="output">{
+  "status": "ready"
+}</pre>
+    </main>
+
+    <script>
+      const form = document.getElementById("dwellForm");
+      const output = document.getElementById("output");
+      const meta = document.getElementById("meta");
+
+      const asBase64 = (file) =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = String(reader.result || "");
+            const base64 = result.includes(",") ? result.split(",")[1] : "";
+            resolve(base64);
+          };
+          reader.onerror = () => reject(reader.error || new Error("File read failed"));
+          reader.readAsDataURL(file);
+        });
+
+      const format = (value) => JSON.stringify(value, null, 2);
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        output.textContent = "{\n  \"status\": \"sending\"\n}";
+        meta.textContent = "Sending request...";
+
+        try {
+          const fileInput = document.getElementById("imageFile");
+          const file = fileInput.files && fileInput.files[0];
+          if (!file) {
+            throw new Error("Please choose an image file.");
+          }
+
+          const screenshotB64 = await asBase64(file);
+          if (!screenshotB64) {
+            throw new Error("Image conversion to base64 failed.");
+          }
+
+          const baseUrl = document.getElementById("baseUrl").value.trim().replace(/\/$/, "");
+          const body = {
+            user_id: document.getElementById("userId").value.trim(),
+            page_url: document.getElementById("pageUrl").value.trim(),
+            page_title: document.getElementById("pageTitle").value.trim() || undefined,
+            dwell_duration_ms: Number(document.getElementById("duration").value),
+            screenshot_b64: screenshotB64,
+          };
+
+          const response = await fetch(`${baseUrl}/dwell`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          });
+
+          const text = await response.text();
+          const parsed = text ? JSON.parse(text) : null;
+
+          meta.textContent = `HTTP ${response.status} ${response.statusText} | ${new Date().toLocaleTimeString()}`;
+          output.textContent = format(parsed);
+
+          if (!response.ok) {
+            throw new Error(`Request failed: ${response.status} ${response.statusText}`);
+          }
+        } catch (error) {
+          meta.textContent = `Error | ${new Date().toLocaleTimeString()}`;
+          output.textContent = format({ error: String(error) });
+        }
+      });
+    </script>
+  </body>
+</html>
