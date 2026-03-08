@@ -41,6 +41,13 @@ const ANCHOR_PROGRESS_ID = "itrack-anchor-progress";
 const AUTO_CAPTURE_TOGGLE_ID = "itrack-auto-capture-toggle";
 const AUTO_CAPTURE_STATUS_ID = "itrack-auto-capture-status";
 const DEV_ACTIONS_ROW_ID = "itrack-dev-actions-row";
+const PANEL_IFRAME_ID = "itrack-panel-iframe";
+
+/** Current product lists sent to the React panel iframe. */
+let panelProducts: { recommended: Product[]; all: Product[] } = {
+  recommended: MOCK_RECOMMENDED,
+  all: MOCK_ALL,
+};
 
 /** Replace with your real API endpoint. */
 const GAZE_API_ENDPOINT = "http://localhost:3000/api/gaze";
@@ -102,9 +109,8 @@ function moveGazeDot(x: number, y: number): void {
 
 function updateProductSectionVisibility(): void {
   const hideSections = gazeMode === "calibration";
-  document.querySelectorAll<HTMLElement>(`#${PANEL_ID} .itrack-section`).forEach((section) => {
-    section.style.display = hideSections ? "none" : "";
-  });
+  const panelIframe = document.getElementById(PANEL_IFRAME_ID);
+  if (panelIframe) panelIframe.style.display = hideSections ? "none" : "";
 }
 
 function updateDevActionsVisibility(): void {
@@ -185,17 +191,6 @@ if (itrackRuntime?.onMessage?.addListener) {
     return undefined;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Dwell state
-// ---------------------------------------------------------------------------
-interface DwellState {
-  tileId: string | null;
-  timerId: ReturnType<typeof setTimeout> | null;
-  startTime: number;
-}
-
-const dwell: DwellState = { tileId: null, timerId: null, startTime: 0 };
 
 interface AutoCaptureState {
   enabled: boolean;
@@ -711,10 +706,46 @@ function renderBackendTile(container: HTMLElement, product: BackendProduct, inde
 
 /** (Re-)populates the Recommended section from a live backend response. */
 function updateRecommendedTiles(picks: BackendProduct[]): void {
-  const container = document.getElementById("itrack-recommended-tiles");
-  if (!container) return;
-  container.innerHTML = "";
-  picks.forEach((product, i) => renderBackendTile(container, product, i));
+  panelProducts = {
+    ...panelProducts,
+    recommended: picks.map((p, i) => ({
+      id: `rec-${i}`,
+      name: p.name,
+      shortDescription: p.brand ?? "",
+      imageUrl: p.image_url,
+      price: p.price,
+      url: p.buy_url,
+      kind: "recommended" as const,
+    })),
+  };
+  sendPanelData();
+}
+
+function createPanelIframe(parent: HTMLElement): void {
+  if (document.getElementById(PANEL_IFRAME_ID)) return;
+  const iframe = document.createElement("iframe");
+  iframe.id = PANEL_IFRAME_ID;
+  iframe.src = (globalThis as any).browser.runtime.getURL("panel/panel.html");
+  iframe.setAttribute("allowTransparency", "true");
+  iframe.style.cssText = [
+    "width:100%",
+    "flex:1 1 0",
+    "min-height:0",
+    "border:none",
+    "background:transparent",
+    "overflow:hidden",
+  ].join(";");
+  iframe.addEventListener("load", () => sendPanelData(), { once: true });
+  parent.appendChild(iframe);
+}
+
+function sendPanelData(): void {
+  const iframe = document.getElementById(PANEL_IFRAME_ID) as HTMLIFrameElement | null;
+  if (!iframe?.contentWindow) return;
+  iframe.contentWindow.postMessage(
+    { type: "ITRACK_PANEL_DATA", payload: panelProducts },
+    "*",
+  );
 }
 
 function createSection(parent: HTMLElement, title: string, products: Product[], containerId: string): HTMLElement {
@@ -848,8 +879,8 @@ function createPanel(): void {
   createImageUploadControl(actionsRow);
   createAutoCaptureControl(actionsRow);
   updateDevActionsVisibility();
-  createSection(content, "Recommended products", MOCK_RECOMMENDED, "itrack-recommended-tiles");
-  createSection(content, "All products", MOCK_ALL, "itrack-all-tiles");
+
+  createPanelIframe(content);
   updateProductSectionVisibility();
 
   createReopenPill();
@@ -888,54 +919,21 @@ function injectGazeIframe(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Gaze hit-testing
+// Gaze: forward to React panel iframe; dwell POST fired when panel reports ITRACK_DWELL_FIRED
 // ---------------------------------------------------------------------------
-function getGazedTile(x: number, y: number): HTMLElement | null {
-  const tiles = document.querySelectorAll<HTMLElement>(".itrack-tile");
-  for (const tile of Array.from(tiles)) {
-    const r = tile.getBoundingClientRect();
-    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
-      return tile;
-    }
-  }
-  return null;
-}
-
-function clearDwell(): void {
-  if (dwell.timerId !== null) {
-    clearTimeout(dwell.timerId);
-    dwell.timerId = null;
-  }
-  if (dwell.tileId) {
-    const prev = document.querySelector<HTMLElement>(`[data-product-id="${dwell.tileId}"]`);
-    if (prev) {
-      prev.classList.remove("itrack-tile--gaze-active");
-      prev.style.removeProperty("--dwell-progress");
-    }
-  }
-  dwell.tileId  = null;
-  dwell.startTime = 0;
-}
-
-function fireDwellPost(
-  tileEl: HTMLElement,
-  dwellMs: number,
-  gazeX: number,
-  gazeY: number
-): void {
-  const body = {
-    productId:    tileEl.dataset.productId    ?? "",
-    productName:  tileEl.dataset.productName  ?? "",
-    productUrl:   tileEl.dataset.productUrl   ?? "",
-    productPrice: tileEl.dataset.productPrice ?? "",
-    gazeX,
-    gazeY,
-    dwellDuration: dwellMs,
-  };
+function fireDwellPost(payload: {
+  productId: string;
+  productName: string;
+  productUrl: string;
+  productPrice: string;
+  gazeX: number;
+  gazeY: number;
+  dwellDuration: number;
+}): void {
   fetch(GAZE_API_ENDPOINT, {
-    method:  "POST",
+    method: "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify(body),
+    body: JSON.stringify(payload),
   }).catch(err => console.warn("[iTrack] gaze POST failed:", err));
 }
 
@@ -952,11 +950,8 @@ function handleGazeMessage(event: MessageEvent): void {
   const { x, y, calibrated } = data;
   if (typeof x !== "number" || typeof y !== "number") return;
 
-  // Move the native gaze dot in dev mode so the cursor is visible even while
-  // calibration is still in progress (useful for debugging gaze accuracy).
   if (gazeMode === "dev") moveGazeDot(x, y);
 
-  // Skip frames during calibration – gaze is not yet reliable for dwell
   if (!calibrated) {
     observeAutoCaptureGaze(x, y, false);
     return;
@@ -964,33 +959,18 @@ function handleGazeMessage(event: MessageEvent): void {
 
   observeAutoCaptureGaze(x, y, true);
 
-  const tile = getGazedTile(x, y);
-  const tileId = tile?.dataset.productId ?? null;
-
-  if (tileId !== dwell.tileId) {
-    // Gaze moved to a different tile (or off all tiles)
-    clearDwell();
-    if (tile && tileId) {
-      dwell.tileId    = tileId;
-      dwell.startTime = Date.now();
-      tile.classList.add("itrack-tile--gaze-active");
-      dwell.timerId = setTimeout(() => {
-        const el = document.querySelector<HTMLElement>(`[data-product-id="${tileId}"]`);
-        if (el) {
-          fireDwellPost(el, DWELL_THRESHOLD_MS, x, y);
-          // Flash the tile to confirm the dwell fired
-          el.classList.add("itrack-tile--dwell-fired");
-          setTimeout(() => el.classList.remove("itrack-tile--dwell-fired"), 600);
-        }
-        clearDwell();
-      }, DWELL_THRESHOLD_MS);
-    }
-  } else if (tile && tileId) {
-    // Still dwelling on same tile – update CSS progress variable
-    const elapsed  = Date.now() - dwell.startTime;
-    const progress = Math.min(elapsed / DWELL_THRESHOLD_MS, 1);
-    tile.style.setProperty("--dwell-progress", String(progress));
+  // Forward gaze to React panel iframe for card hit-testing and dwell
+  const panelIframe = document.getElementById(PANEL_IFRAME_ID) as HTMLIFrameElement | null;
+  if (panelIframe?.contentWindow) {
+    panelIframe.contentWindow.postMessage({ type: "ITRACK_GAZE", x, y, calibrated }, "*");
   }
+}
+
+function handlePanelMessage(event: MessageEvent): void {
+  if (!event.origin.startsWith("moz-extension://")) return;
+  const data = event.data as { type?: string; payload?: any };
+  if (data?.type !== "ITRACK_DWELL_FIRED" || !data.payload) return;
+  fireDwellPost(data.payload);
 }
 
 function init(): void {
@@ -1002,6 +982,7 @@ function init(): void {
   injectGazeIframe();
   watchForImageInput();
   window.addEventListener("message", handleGazeMessage);
+  window.addEventListener("message", handlePanelMessage);
 }
 
 if (document.readyState === "loading") {
@@ -1012,13 +993,8 @@ if (document.readyState === "loading") {
 
 window.addEventListener("itrack-products", ((e: CustomEvent<{ recommended: Product[]; all: Product[] }>) => {
   const { recommended, all } = e.detail || { recommended: [], all: [] };
-  const recContainer = document.getElementById("itrack-recommended-tiles");
-  const allContainer = document.getElementById("itrack-all-tiles");
-  if (!recContainer || !allContainer) return;
-  recContainer.innerHTML = "";
-  allContainer.innerHTML = "";
-  recommended.forEach(p => renderTile(recContainer, p));
-  all.forEach(p => renderTile(allContainer, p));
+  panelProducts = { recommended: recommended || [], all: all || [] };
+  sendPanelData();
 }) as EventListener);
 
 type ItrackRuntimeConfig = {
