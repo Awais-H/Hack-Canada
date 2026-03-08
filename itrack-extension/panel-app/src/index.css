@@ -55,6 +55,25 @@ html, body {
   overflow-y: hidden;
   scrollbar-width: thin;
   padding-bottom: 4px;
+  /* Mild fade at left/right edges so scroll feels less sharp */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black 20px,
+    black calc(100% - 20px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black 20px,
+    black calc(100% - 20px),
+    transparent 100%
+  );
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }
 
 .itrack-cards-row::-webkit-scrollbar {
@@ -66,16 +85,16 @@ html, body {
   border-radius: 2px;
 }
 
-/* Product card – exactly 288×224, no flex growth */
+/* Product card – 65% of 288×224 (~187×146), same aspect ratio */
 .itrack-card {
   position: relative;
-  flex: 0 0 288px;
-  width: 288px;
-  height: 224px;
-  min-width: 288px;
-  min-height: 224px;
-  max-width: 288px;
-  max-height: 224px;
+  flex: 0 0 187px;
+  width: 187px;
+  height: 146px;
+  min-width: 187px;
+  min-height: 146px;
+  max-width: 187px;
+  max-height: 146px;
   cursor: pointer;
   border-radius: 14px;
   overflow: hidden;
