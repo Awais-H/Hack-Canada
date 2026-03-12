@@ -1,9 +1,11 @@
 
 # Glimpse
 
+https://github.com/user-attachments/assets/acc58c49-73b9-46df-ac16-685a47b79586
+
 Every second, millions of dollars of purchase intent just disappears... Let’s be real, how many times have you scrolled on Instagram, seen a cool jacket, but just scrolled past it because you weren’t bothered to leave the app? Glimpse solves this by building the proper infrastructure to go from 📱 scrolling -> 🛍️ shopping 
 
-# 👀 How it works:
+## 👀 How it works:
 - Glimpse tracks your eye movements while your scrolling
 - If you look at a product for 2+ seconds, Glimpse captures an image of the frame and sends it to backend
 - Image is normalized by Cloudinary and sent to Gemini + SerpApi to identify product and retrieve relevant purchase links
